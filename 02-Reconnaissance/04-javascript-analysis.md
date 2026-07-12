@@ -1,76 +1,129 @@
-# JavaScript Analysis: Finding Hidden Attack Surface
+# JavaScript Analysis: Complete Guide
 
-## Automated JS Discovery
-
-```bash
-# Find all JS files linked from pages
-gospider -s https://target.com -d 2 --js | grep -E '\.js' | sort -u
-# Wayback JS
-gau target.com | grep -E '\.js' | sort -u
-# Subdomain-specific JS
-subfinder -d target.com | httpx -silent | subjs | sort -u
-```
-
-## Static Analysis Techniques
-
-### Extract Endpoints from JS
-```bash
-# Regex-based extraction
-cat bundle.js | grep -oP 'https?://[^"'"'"' )]+' | sort -u
-cat bundle.js | grep -oP '["'"'"'](/[a-zA-Z0-9_/.-]+)["'"'"']' | sort -u | grep -v '\.css\|\.png\|\.svg\|\.woff'
-```
-
-### Secrets in JS
-```bash
-# High-signal patterns
-grep -roP '(?:api[Kk]ey|apikey|api_key|secret|token|password|credentials?)["'\s]*[:=]\s*["'"'"'][^"'"'"']+' *.js
-grep -roP 'AIza[0-9A-Za-z_-]{35}' *.js  # Firebase API key
-grep -roP 'AKIA[0-9A-Z]{16}' *.js       # AWS Access Key
-grep -roP 'sk_live_[0-9a-z]+' *.js      # Stripe live key
-grep -roP 'ghp_[0-9A-Za-z]{36}' *.js    # GitHub personal access token
-```
-
-Use `trufflehog`, `secretfinder`, or `mantra` for comprehensive scanning.
-
-### Source Map Analysis
-If source maps are deployed to production, the entire source is recoverable:
+## JS File Collection
 
 ```bash
-# Check for .map files
-ffuf -u https://target.com/assets/app.jsFUZZ -w .map
-# Use source-map-unpack or similar tools
+# From historical URLs
+cat historical_urls.txt | grep -E '\.js($|\?)' | sort -u > js_files.txt
+
+# From crawling
+cat live_hosts.txt | katana -jc -kf all -silent | grep -E '\.js($|\?)' | sort -u >> js_files.txt
+
+# From source map (sourcemap.js)
+# /static/js/main.abc123.js.map
+curl -s https://target.com/static/js/main.abc123.js.map | jq -r '.sources[]'
+
+# JS files in Wayback
+cat historical_urls.txt | grep -E '\.js($|\?)' | sort -u > wayback_js.txt
 ```
 
-## Runtime Analysis with Burp/DOM Invader
+## Endpoint Extraction
 
-### DOM Invader for Client-Side Scanning
-1. Open Burp browser with DOM Invader enabled
-2. Navigate through the application triggering every feature
-3. Monitor DOM Invader's "Prototype Pollution" and "DOM XSS" tabs
-4. Investigate canary reports — green canaries without sinks are useful; with sinks = exploitable
+```bash
+# LinkFinder (comprehensive)
+python3 linkfinder.py -i https://target.com/app.js -o cli
 
-### Sink Discovery
-```js
-// Monitor in console for data flow to dangerous sinks
-monitorEvents(document.body, 'mouseover');
-// Watch for innerHTML assignments, eval calls, document.write usage
+# xnLinkFinder (fast, multi-threaded)
+python3 xnLinkFinder.py -i https://target.com/app.js -d 2 -sp 'example.com'
+
+# JSLuice (Go, very fast)
+jsluice extract https://target.com/app.js
+jsluice secrets https://target.com/app.js
+
+# Manual grep for endpoints
+cat all_js_files.txt | grep -ohP '"[a-zA-Z0-9_\/.-]{3,}"' | sort -u
+cat all_js_files.txt | grep -ohP "'[a-zA-Z0-9_\/.-]{3,}'" | sort -u
+cat all_js_files.txt | grep -ohP '`/[a-zA-Z0-9_\/.-]+`' | sort -u
+
+# API endpoint patterns
+cat all_js_files.txt | grep -E 'api|v1|v2|graphql|rest' | grep -oP '("|\'|`)(/[a-zA-Z0-9_\/.-]{3,})("|\'|`)' | sort -u
 ```
 
-## WebSocket Discovery
+## Secret Discovery
 
-```js
-// Intercept WebSocket connections from JS
-new WebSocket('wss://target.com/ws');
-// Look for /ws, /socket, /connect, /stream patterns in JS
+```bash
+# SecretFinder
+python3 SecretFinder.py -i https://target.com/app.js -o cli
+
+# Detect Secrets (extensive rules)
+detect-secrets scan --all-files --no-verify js_files/
+
+# TruffleHog (for JS from web)
+trufflehog filesystem --directory=js_files/ --no-verification
+
+# Manual secret patterns to grep
+cat all_js.txt | grep -E '"AKIA[0-9A-Z]{16}"'  # AWS Access Key
+cat all_js.txt | grep -E 'sk_live_|pk_live_'  # Stripe keys
+cat all_js.txt | grep -E 'ghp_[a-zA-Z0-9]{36}'  # GitHub tokens
+cat all_js.txt | grep -E 'AIza[0-9A-Za-z_-]{35}'  # Google API keys
+cat all_js.txt | grep -E 'xox[baprs]-[0-9]{12}-[0-9]{12}'  # Slack tokens
+cat all_js.txt | grep -E 'eyJ[a-zA-Z0-9_-]{10,}\.eyJ[a-zA-Z0-9_-]{10,}'  # JWT tokens
+cat all_js.txt | grep -E 'api[Kk]ey|apikey|api_key|secret|token|password|auth'  # Generic
 ```
 
-Check WebSocket authentication: is the session cookie sent? Is a token in the URL? Do messages contain auth tokens?
+## API Route Reconstruction
 
-## JS Bundler Fingerprinting
+```javascript
+// Build URL templates from JS
+// Pattern: const API_BASE = '/api/v2/'
+// Then: fetch(API_BASE + 'users/' + userId)
+// = /api/v2/users/{userId}
 
-- **Webpack** — `webpackJsonp`, `__webpack_require__`
-- **Rollup** — IIFE pattern with `(function () {` at top
-- **Parcel** — `$parcel$` runtime identifiers
-- **Vite** — ES module imports with `?t=` timestamps
+// GraphQL introspection responses
+// If app.js contains gql`query` or `buildSchema`
+// Server likely supports introspection
 
-Each has different vulnerability profiles — Webpack source maps are commonly accidentally deployed, Rollup bundles are harder to deobfuscate, Vite dev servers on production expose HMR endpoints.
+// i18n / translation files
+// Usually contain all route names the app knows
+// /assets/i18n/en.json -> map of all frontend routes
+```
+
+## SPA Route Analysis
+
+```bash
+# Extract React router paths
+cat app.js | grep -oP 'path: ["\'`]([\w\/:-]+)["\'`]' | sort -u
+cat app.js | grep -oP 'route="[^"]+"' | sort -u
+cat app.js | grep -oP "route='[^']+'" | sort -u
+
+# Vue router
+cat app.js | grep -oP "path: ['\"`].+?['\"`]" | sort -u
+
+# Angular routes
+cat app.js | grep -oP "path: ['\"`].+?['\"`]" | sort -u
+
+# SPA routes often include:
+# - Admin panels: /admin, /dashboard, /settings
+# - Hidden features: /beta, /experimental, /internal
+# - Debug endpoints: /debug, /test, /sandbox
+# - Configuration: /config, /env, /feature-flags
+```
+
+## Source Map Analysis
+
+```bash
+# Source maps reveal minified code in original form
+curl -s https://target.com/static/js/main.js.map > main.js.map
+# Check for .map files (often present in production by accident)
+
+# Extract from source map
+jq -r '.sources[]' main.js.map  # List all original files
+jq -r '.sourcesContent[]' main.js.map > source_content.txt
+
+# Tools
+node-easy-sourcemap/main.py -d https://target.com/static/js/main.js
+# Source map can leak original code, internal names, dev comments
+```
+
+## React DevTools & Component Analysis
+
+```bash
+# Extract React component names
+cat app.js | grep -oP "displayName: ['\"`][\w]+['\"`]" | sort -u
+
+# Redux actions (state management side effects)
+cat app.js | grep -oP "type: ['\"`][\w]+['\"`]" | sort -u
+
+# Feature flags
+cat app.js | grep -E 'featureFlag|feature_flag|featureToggle|isEnabled' | sort -u
+```
