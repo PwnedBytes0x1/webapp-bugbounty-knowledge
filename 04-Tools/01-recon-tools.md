@@ -1,65 +1,68 @@
-# Reconnaissance Tools
+# Reconnaissance Tools: Configuration & Advanced Usage
 
 ## Subdomain Discovery
-| Tool | Lang | Description |
-|------|------|-------------|
-| subfinder | Go | Fast passive subdomain discovery |
-| amass | Go | Comprehensive OWASP tool |
-| puredns | Go | Wildcard-filtering resolver |
-| shuffledns | Go | Mass DNS resolver |
-| massdns | C | High-performance DNS resolver |
-| dnsx | Go | Multi-purpose DNS toolkit |
-| alterx | Go | Subdomain permutation generation |
 
-## HTTP Probing & Tech Detection
-| Tool | Description |
-|------|-------------|
-| httpx | Multi-purpose HTTP probe |
-| httprobe | Simple HTTP/HTTPS probing |
-| aquatone | Visual inspection |
-| gowitness | Screenshot tool |
-| whatweb | Tech fingerprinting |
-| nuclei | Template scanner with tech detection |
+### subfinder (Passive)
+```bash
+subfinder -d target.com -all -silent -o subs.txt
+# -all enables ALL passive sources
+# Key sources: crtsh, certspotter, dnsdb, hackertarget, securitytrails, virustotal
+```
 
-## URL Collection
-| Tool | Description |
-|------|-------------|
-| gau | Get all URLs from Wayback/CommonCrawl |
-| waybackurls | Wayback Machine URLs |
-| katana | Fast crawler with JS rendering |
-| gospider | Web spider |
-| paramspider | Parameter extraction |
+### amass
+```bash
+# Passive enumeration
+amass enum -passive -d target.com -o amass.txt
+# Active enumeration (queries NS, attempts zone transfer)
+amass enum -active -d target.com -o active.txt
+# Intel mode (related domains via ASN, reverse WHOIS)
+amass intel -whois -d target.com
+```
+
+### dnsx (DNS Probing)
+```bash
+# Resolve A, AAAA, CNAME records
+cat subs.txt | dnsx -a -aaaa -cname -resp -silent -o resolved.txt
+# Wildcard filtering
+dnsx -l subs.txt -wd -silent
+```
+
+## Service Discovery
+
+### httpx (HTTP Probing)
+```bash
+cat subs.txt | httpx -title -status-code -tech-detect -follow-redirects \
+  -web-server -ip -cname -cdn -silent -o metadata.json
+```
+
+### naabu (Port Scanning)
+```bash
+naabu -l hosts.txt -top-ports 1000 -silent -o ports.txt
+naabu -l hosts.txt -p - -rate 1000  # Full scan
+```
 
 ## Content Discovery
-| Tool | Description |
-|------|-------------|
-| ffuf | Fast web fuzzer |
-| gobuster | Multi-purpose brute-force |
-| dirsearch | Python directory scanner |
-| feroxbuster | Rust recursive discovery |
-| arjun | HTTP parameter discovery |
 
-## JavaScript Analysis
-| Tool | Description |
-|------|-------------|
-| LinkFinder | Extract endpoints from JS |
-| SecretFinder | Find secrets in JS |
-| xnLinkFinder | Burp-friendly link extraction |
-| sourcemapper | Reverse engineer source maps |
+### ffuf
+```bash
+# Directory brute-force
+ffuf -u https://target.com/FUZZ -w wordlist.txt -c -t 100 -fc 403,404
+# Parameter fuzzing
+ffuf -u https://target.com/api/FUZZ -w params.txt -mc all -fc 400
+# Recursive with depth
+ffuf -u https://target.com/FUZZ -w big.txt -recursion -recursion-depth 3
+# VHOST discovery
+ffuf -u https://target.com -H "Host: FUZZ.target.com" -w subs.txt -fc 200
+```
 
-## GitHub Recon
-| Tool | Description |
-|------|-------------|
-| gitleaks | Git secret scanning |
-| trufflehog | Deep commit history scanning |
-| gitrob | Organization file analysis |
+### gospider (Crawler)
+```bash
+gospider -s https://target.com -d 3 -c 50 -t 30 --js -o spider_output
+gospider -S subs.txt -d 2 --subs -o cross_spider
+```
 
-## Cloud Discovery
-| Tool | Description |
-|------|-------------|
-| cloud_enum | Multi-cloud bucket enumeration |
-| s3scanner | S3 bucket finder + permissions |
-
----
-
-> **Next**: [Scanning Tools](02-scanning-tools.md)
+## Favicon/Hash Scanning
+```bash
+python3 favicon_hash.py -d target.com
+# Search Shodan: http.favicon.hash:<hash>
+```

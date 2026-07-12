@@ -1,35 +1,64 @@
-# Learning Path
+# The Advanced Hunter's Learning Path
 
-## Phase 1: Foundation (0-3 months)
-- HTTP/HTTPS, DOM, JavaScript, Same-Origin Policy, CORS
-- Authentication: session cookies, JWT, OAuth2
-- OWASP Top 10 concepts
-- Burp Suite Community setup
-- Resources: PortSwigger Academy, MDN, Hacker101
+## Foundation (3-6 months)
 
-## Phase 2: Reconnaissance (3-6 months)
-- Subdomain enumeration (passive + active)
-- Content discovery and directory brute-forcing
-- JavaScript analysis for hardcoded secrets
-- GitHub dorking
-- Technology fingerprinting
-- Master: subfinder, httpx, ffuf, gau, katana
+### Prerequisites
+- HTTP protocol, request/response anatomy, state management
+- Web frameworks (Express, Django, Spring Boot, Rails) at architectural level
+- Database query patterns (SQL, NoSQL, GraphQL)
+- Authentication flows (session cookies, JWT, OAuth2, SAML)
 
-## Phase 3: Core Vulnerabilities (6-12 months)
-Go deep on 3-4 vulnerability types:
-| Type | Difficulty | Avg Bounty |
-|------|------------|------------|
-| IDOR | Low-Med | $500-$3,000 |
-| XSS | Low-Med | $250-$1,500 |
-| SSRF | Med-Hard | $2,000-$10,000 |
-| SQLi | Med | $1,000-$5,000 |
+### Core skills
+- Burp Suite proficiency: proxy, repeater, intruder, sequencer, decoder, comparer
+- Basic scripting: Python for automation, bash for recon pipelines
+- Reading and modifying JavaScript in browser DevTools
+- Understanding of OWASP Top 10 from an exploitation perspective
 
-## Phase 4: Automation (12+ months)
-Build custom recon pipelines, use interceptor proxies effectively.
+## Intermediate (6-12 months)
 
-## Phase 5: Advanced (18+ months)
-Mobile apps, GraphQL, Web3, Cloud infrastructure, Deserialization.
+- Recon automation with subfinder, amass, httpx, nuclei
+- SQL injection automation with sqlmap, ghauri
+- XSS exploitation with BeEF, XSStrike, DOM Invader
+- SSRF chaining to cloud metadata endpoints
+- IDOR detection at scale with Autorize/AuthMatrix
+- Basic report writing and CVSS scoring
 
----
+## Advanced (12+ months)
 
-> **Next Section**: [Reconnaissance](../02-Reconnaissance/01-subdomain-enumeration.md)
+- WAF bypass methodologies for each vulnerability class
+- Server-side prototype pollution to RCE chains
+- GraphQL introspection, batch query abuse, and resolver-level authorization testing
+- JWT algorithm confusion, kid injection, jku/x5u chain attacks
+- Cloud-specific attack paths (IMDSv1, S3 bucket policy abuse, IAM privilege escalation)
+- Smart contract auditing fundamentals (Solidity, reentrancy, oracle manipulation)
+- Mobile application testing (Frida, objection, APK reverse engineering)
+
+## Mastery (24+ months)
+
+- Original vulnerability research (CVE discovery)
+- Tool development (custom Burp extensions, automation frameworks)
+- Chained exploitation across multiple vulnerability classes
+- Deep understanding of browser security mechanisms (SOP, CSP, CORB, COEP, COOP)
+- Kernel-level and native code exploitation for mobile
+- Production-grade fuzzing (AFL++ on native libraries)
+- Blockchain/DeFi protocol-level auditing
+
+## Resources
+
+### Books
+- _Web Application Hacker's Handbook_ (Stuttard & Pinto) — dated but foundational
+- _The Tangled Web_ (Zalewski) — browser security internals
+- _Black Hat Go_ (Steele et al.) — Go for security tooling
+- _Real-World Bug Hunting_ (Yaworski) — case studies
+
+### Labs
+- PortSwigger Web Security Academy — free, structured, comprehensive
+- PentesterLab — progressive difficulty, great for methodology
+- HackTheBox / TryHackMe — practical application
+- YESWEHACK Dojo — bug bounty specific
+
+### Communities
+- HackerOne Hacktivity — read real reports
+- Bugcrowd Forum — methodology discussions
+- r/bugbounty — curated discussions (ignore the low-effort posts)
+- Discord servers for specific programs (private program discussions)

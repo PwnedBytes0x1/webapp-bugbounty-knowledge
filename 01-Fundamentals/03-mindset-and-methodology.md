@@ -1,39 +1,47 @@
-# Mindset & Methodology
+# Hunter Mindset & Testing Methodology
 
-## The Bug Hunter's Mindset
-1. **Think Like an Adversary** - Assume everything can be manipulated
-2. **Embrace the Process** - Go deep on features rather than shallow across everything
-3. **Handle Rejection** - Learn from triage feedback; re-examine closed reports
+## The Hypothesis-Driven Approach
 
-## Structured Methodology
+Top hunters do not randomly fuzz parameters. They form hypotheses about the application architecture and test them:
 
-### Phase 1: Broad Reconnaissance
-Target -> Subdomains -> IPs -> Open Ports -> Web Tech -> Endpoints
-80% of time should be on recon - more recon = more attack surface = more bugs
+1. **What framework is this?** → fingerprints the vulnerability classes likely present
+2. **What does the auth model look like?** → identifies privilege boundaries to test
+3. **Where does user input travel?** → maps injection surfaces systematically
+4. **What is the business logic?** → uncovers the assumptions attackers break
 
-### Phase 2: Scope Analysis
-- Map authentication boundaries
-- Identify user roles (guest, user, admin)
-- Note which endpoints accept user input
+## Reconnaissance-First
 
-### Phase 3: Targeted Testing
-Create a hypothesis-driven approach for each endpoint and parameter.
+Spend 60% of your time on recon, 30% on exploitation, 10% on reporting. The recon phase is where you discover the attack surface that competitors miss.
 
-### Phase 4: Exploit Chaining
-XSS + CSRF -> ATO, IDOR + Race condition -> Data manipulation
+### Daily Routine (when actively hunting)
+1. Run automated recon pipeline (subfinder + httpx + nuclei) against fresh targets
+2. Review results for anomalies: unexpected status codes, unusual technologies, exposed endpoints
+3. Manually explore 3-5 interesting findings from automation output
+4. Deep-dive on one target: parameter discovery, logic mapping, auth boundary testing
+5. Write reports for any confirmed findings
 
-### Phase 5: Documentation
-Take screenshots at every step. Record exact request/response pairs.
+## Burp Suite Power User Setup
 
-## Daily Workflow
-| Time | Activity |
-|------|----------|
-| Morning | Check new programs, recon changes (30min) |
-| Deep work | Manual testing on 1-2 targets (3hr) |
-| Afternoon | Automated scanning, new subdomains (2hr) |
-| Review | Triage feedback, research bugs (1hr) |
-| Wind down | Read writeups, learn techniques (30min) |
+- **Project options → TLS → Use custom CA certificate** — avoid fingerprinting
+- **Session handling rules** — auto-reauthenticate when sessions expire
+- **Macros** — automate multi-step authentication flows
+- **Extensions** — Autorize, AuthMatrix, Turbo Intruder, Collaborator Everywhere
+- **Scope configuration** — exclude out-of-scope domains to prevent accidental testing
 
----
+## Note-Taking Methodology
 
-> **Next**: [Legal & Ethics](04-legal-and-ethics.md)
+Maintain a hunt log with:
+- Target name and scope
+- Endpoints tested and results (positive and negative)
+- Payloads attempted
+- Screenshots organized by finding
+- Time spent per target
+
+This serves as evidence for dispute resolution and as a knowledge base for future engagements.
+
+## Burnout Prevention
+
+- Set a daily time limit (4-6 hours of focused testing max)
+- Rotate between vulnerability classes to maintain fresh perspective
+- Take breaks after large payouts — the pressure to repeat success causes sloppy testing
+- Collaborate with other hunters on discord/irc — shared methodology catches more bugs

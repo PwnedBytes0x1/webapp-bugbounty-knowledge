@@ -1,85 +1,59 @@
-# Web3 Security
-
-Web3 security encompasses vulnerabilities in smart contracts, DeFi protocols, bridges, and blockchain infrastructure.
+# Web3 Security: Blockchain & DeFi Auditing
 
 ## Smart Contract Vulnerabilities
 
 ### Reentrancy
-Calling an external contract that calls back into the original function before it completes.
-
 ```solidity
 function withdraw(uint amount) public {
     require(balances[msg.sender] >= amount);
     (bool success, ) = msg.sender.call{value: amount}("");
     require(success);
-    balances[msg.sender] -= amount;  // Updated AFTER external call
+    balances[msg.sender] -= amount;  // State update AFTER external call
 }
 ```
-
-**Prevention**: Checks-effects-interactions pattern, reentrancy guards.
-
-### Integer Overflow/Underflow
-```solidity
-// Solidity <0.8: No built-in overflow protection
-function transfer(uint amount) public {
-    balances[msg.sender] -= amount;  // Underflow: 0 - 1 = huge number
-}
-```
-
-**Prevention**: Use Solidity 0.8+ (built-in checks) or SafeMath library.
-
-### Flash Loan Attacks
-- Borrow huge amounts without collateral in a single transaction
-- Manipulate oracle prices, drain liquidity pools
-- Common in AMMs (Uniswap, PancakeSwap)
+Exploit: Flash loan -> deposit -> withdraw -> re-enter -> drain
 
 ### Oracle Manipulation
-- Manipulating price feeds (Chainlink, Uniswap TWAP)
-- Sandwich attacks around oracle updates
-- Single-source oracle reliance
+```solidity
+uint price = uniswapV2Pool.getReserves();  // Single source, manipulable
+```
+Chain: Flash borrow -> swap to manipulate pool -> protocol reads manipulated price -> exploit
 
 ### Access Control
-- Missing `onlyOwner` modifiers
-- Initialization functions callable by anyone
-- `tx.origin` for authentication (vulnerable to phishing)
+```solidity
+function mint(address to, uint amount) public {
+    _mint(to, amount);  // Missing onlyOwner
+}
+```
 
-### Front-Running / MEV
-- Observing pending transactions and front-running
-- Sandwich attacks on DEX trades
-- Time-bandit attacks (reorgs on low-hash chains)
+### Flash Loan Attack Pattern
+1. Borrow large amount from flash loan provider
+2. Manipulate AMM price / inflate share price
+3. Extract value from protocol
+4. Repay loan + fee
 
-## DeFi Specific Issues
+### DeFi Bugs
+- Donation attacks: direct transfer inflates share price
+- Governance attacks: flash loan voting power
+- Precision loss: rounding errors in share calculation
+- Liquidation flaws: self-liquidation at profit
 
-- **Impermanent loss** — Not a vulnerability but an economic risk
-- **Liquidity pool manipulation** — Imbalance attacks
-- **Yield aggregation risks** — Compounding strategy failures
-- **Governance attacks** — Flash loan voting manipulation
+## Bug Bounty Landscape
 
-## Bridge Vulnerabilities
-- **Validator set compromise** — Bridge security relies on n validators
-- **Message passing bugs** — Incorrect packet verification
-- **Replay attacks** — Same message replayed on different chains
-- **Honeypot bridges** — Fake bridges draining user funds
+### Platforms
+- Immunefi: $115M+ paid, primary DeFi platform
+- HackenProof: Web3-focused
+- HackerOne/Bugcrowd: growing blockchain programs
 
-## Common Web3 Tools
+### Payouts
+- Critical (fund loss): $10k-$1M+
+- High (state manipulation): $5k-$50k
+- Medium (logic flaw): $1k-$10k
 
-| Tool | Purpose |
-|------|---------|
-| **Slither** | Static analysis for Solidity |
-| **Mythril** | Security analysis for EVM bytecode |
-| **Foundry** | Smart contract development + fuzzing |
-| **Hardhat** | Development environment + testing |
-| **Echidna** | Fuzzing framework |
-| **Etherscan** | Contract verification and analysis |
-| **Dune Analytics** | On-chain data analysis |
-
-## Web3 Bug Bounty Programs
-
-- **Immunefi** — Largest bug bounty platform for Web3
-- **HackerOne web3 programs** — Some blockchain projects
-- **Code4rena** — Competitive smart contract auditing
-- **Sherlock** — Competitive audits with real bounties
-
----
-
-> **Next**: [GraphQL Security](04-graphql-security.md)
+## Tooling
+```bash
+slither contract.sol
+forge test
+mythril analyze contract.bin
+echidna-test contract.sol --contract TestContract
+```

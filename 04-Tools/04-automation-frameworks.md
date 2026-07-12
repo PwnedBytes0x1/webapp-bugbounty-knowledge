@@ -1,61 +1,55 @@
-# Automation Frameworks
+# Automation Frameworks: Pipeline Architecture
 
-## ProjectDiscovery Ecosystem
+## Daily Scan Script
 ```bash
-subfinder -d target.com | httpx -o live.txt
-katana -list live.txt -o urls.txt
-nuclei -l live.txt -t ~/nuclei-templates/
+#!/bin/bash
+TODAY=$(date +%Y-%m-%d)
+SCOPE_FILE="$HOME/scopes/active.txt"
+OUTPUT_DIR="$HOME/results/$TODAY"
+mkdir -p $OUTPUT_DIR
+
+while read target; do
+  echo "[*] Scanning: $target"
+  
+  # Phase 1: Subdomain discovery
+  subfinder -d "$target" -all -silent | anew "$OUTPUT_DIR/$target/subs.txt"
+  
+  # Phase 2: Resolution + HTTP probing
+  cat "$OUTPUT_DIR/$target/subs.txt" | \
+    dnsx -a -cname -resp -silent | \
+    httpx -title -status-code -tech-detect -silent > "$OUTPUT_DIR/$target/metadata.json"
+  
+  # Phase 3: Vulnerability scanning
+  cat "$OUTPUT_DIR/$target/metadata.json" | jq -r '.url' | \
+    nuclei -t $HOME/nuclei-templates/ -severity critical,high -o "$OUTPUT_DIR/$target/nuclei.txt"
+  
+  # Phase 4: Alert on critical
+  if [ -s "$OUTPUT_DIR/$target/nuclei.txt" ]; then
+    curl -X POST -H "Content-Type: application/json" \
+      -d '{"text":"Critical on '$target': $(cat '$OUTPUT_DIR/$target/nuclei.txt')"}' \
+      $SLACK_WEBHOOK_URL
+  fi
+done < "$SCOPE_FILE"
 ```
 
-## Orchestration Tools
-| Tool | Description |
-|------|-------------|
-| Reconftw | Complete recon framework with 70+ tools |
-| reNgine | Web-based recon with Django |
-| recon-ng | Full-featured recon framework |
-| sn0int | OSINT framework with plugins |
-
-## CI/CD Integration
-```yaml
-name: Nightly Recon
-on:
-  schedule:
-    - cron: '0 6 * * *'
-jobs:
-  recon:
-    runs-on: ubuntu-latest
-    steps:
-      - run: subfinder -d target.com -o subs.txt
-      - run: httpx -l subs.txt -o live.txt
-      - uses: actions/upload-artifact@v3
-        with:
-          name: recon-results
-          path: ./*.txt
+## Notification-Driven Hunting
+```bash
+# Monitor for new subdomains daily
+if [ -f "$OUTPUT_DIR/$target/yesterday.txt" ]; then
+  diff "$OUTPUT_DIR/$target/yesterday.txt" "$OUTPUT_DIR/$target/subs_sorted.txt" | \
+    grep ">" | mail -s "New subdomains: $target" you@example.com
+fi
+cp "$OUTPUT_DIR/$target/subs_sorted.txt" "$OUTPUT_DIR/$target/yesterday.txt"
 ```
 
-## Custom Pipeline
+## Custom Burp Extension Pattern
 ```python
-import subprocess, json
-domain = "target.com"
-subs = subprocess.run(["subfinder", "-d", domain, "-silent"], capture_output=True, text=True)
-with open("subs.txt", "w") as f:
-    f.write(subs.stdout)
-live = subprocess.run(["httpx", "-l", "subs.txt", "-silent", "-json"], capture_output=True, text=True)
-for line in live.stdout.strip().split("
-"):
-    if line:
-        data = json.loads(line)
-        print(f"Live: {data['url']} - {data.get('title', 'N/A')}")
+from burp import IBurpExtender, IScannerCheck
+
+class BurpExtender(IBurpExtender, IScannerCheck):
+    def registerExtenderCallbacks(self, callbacks):
+        self._callbacks = callbacks
+        self._helpers = callbacks.getHelpers()
+        callbacks.setExtensionName("Custom Scanner")
+        callbacks.registerScannerCheck(self)
 ```
-
-## Notification Integration
-- **notify** - Send Slack/Discord/Telegram notifications
-- **apprise** - Multi-platform notification library
-
-```bash
-subfinder -d target.com -silent | anew subs.txt | notify -provider slack
-```
-
----
-
-> **Next Section**: [Advanced Topics](../05-Advanced-Topics/01-cloud-security.md)

