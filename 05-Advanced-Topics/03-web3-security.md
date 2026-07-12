@@ -1,59 +1,55 @@
-# Web3 Security: Blockchain & DeFi Auditing
+# Web3 / Smart Contract Security
 
-## Smart Contract Vulnerabilities
+## Attack Vectors
 
-### Reentrancy
+### Re-entrancy
 ```solidity
-function withdraw(uint amount) public {
+// Vulnerable: sends before updating state
+function withdraw(uint256 amount) public {
     require(balances[msg.sender] >= amount);
     (bool success, ) = msg.sender.call{value: amount}("");
     require(success);
-    balances[msg.sender] -= amount;  // State update AFTER external call
+    balances[msg.sender] -= amount;
 }
-```
-Exploit: Flash loan -> deposit -> withdraw -> re-enter -> drain
 
-### Oracle Manipulation
-```solidity
-uint price = uniswapV2Pool.getReserves();  // Single source, manipulable
-```
-Chain: Flash borrow -> swap to manipulate pool -> protocol reads manipulated price -> exploit
-
-### Access Control
-```solidity
-function mint(address to, uint amount) public {
-    _mint(to, amount);  // Missing onlyOwner
+// Safe: update state first
+function withdraw(uint256 amount) public {
+    require(balances[msg.sender] >= amount);
+    balances[msg.sender] -= amount;
+    (bool success, ) = msg.sender.call{value: amount}("");
+    require(success);
 }
 ```
 
-### Flash Loan Attack Pattern
-1. Borrow large amount from flash loan provider
-2. Manipulate AMM price / inflate share price
-3. Extract value from protocol
-4. Repay loan + fee
+### Front-running
+- Transaction ordering manipulation
+- Sandwich attacks on DEX trades
 
-### DeFi Bugs
-- Donation attacks: direct transfer inflates share price
-- Governance attacks: flash loan voting power
-- Precision loss: rounding errors in share calculation
-- Liquidation flaws: self-liquidation at profit
+### Flash Loan Attacks
+- Oracle manipulation
+- Price manipulation via large loans
 
-## Bug Bounty Landscape
+### Other
+- Integer overflow/underflow
+- Access control issues (tx.origin vs msg.sender)
+- Short address attack
+- Signature replay attacks
 
-### Platforms
-- Immunefi: $115M+ paid, primary DeFi platform
-- HackenProof: Web3-focused
-- HackerOne/Bugcrowd: growing blockchain programs
+## Web3 DApp Testing
 
-### Payouts
-- Critical (fund loss): $10k-$1M+
-- High (state manipulation): $5k-$50k
-- Medium (logic flaw): $1k-$10k
+### MetaMask Interaction
+- Check how dApp interacts with wallet
+- Test with different chain IDs
+- Verify signature requests
 
-## Tooling
-```bash
-slither contract.sol
-forge test
-mythril analyze contract.bin
-echidna-test contract.sol --contract TestContract
-```
+### RPC Endpoint Testing
+- Infura/Alchemy endpoint enumeration
+- Rate limiting on RPC calls
+
+### Common CVEs
+| Vulnerability | Type | Severity |
+|---------------|------|----------|
+| Re-entrancy (DAO Hack 2016) | Smart Contract | Critical |
+| Flash Loan Attack | DeFi | High |
+| Oracle Manipulation | DeFi | High |
+| Front-running | Transaction | Medium |

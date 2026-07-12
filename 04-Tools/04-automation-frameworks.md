@@ -1,55 +1,80 @@
-# Automation Frameworks: Pipeline Architecture
+# Automation Frameworks & Pipelines
 
-## Daily Scan Script
+## Custom Recon Pipeline (Bash)
 ```bash
 #!/bin/bash
-TODAY=$(date +%Y-%m-%d)
-SCOPE_FILE="$HOME/scopes/active.txt"
-OUTPUT_DIR="$HOME/results/$TODAY"
-mkdir -p $OUTPUT_DIR
+DOMAIN=$1
+mkdir -p $DOMAIN/{recon,scanning,exploitation,reporting}
 
-while read target; do
-  echo "[*] Scanning: $target"
-  
-  # Phase 1: Subdomain discovery
-  subfinder -d "$target" -all -silent | anew "$OUTPUT_DIR/$target/subs.txt"
-  
-  # Phase 2: Resolution + HTTP probing
-  cat "$OUTPUT_DIR/$target/subs.txt" | \
-    dnsx -a -cname -resp -silent | \
-    httpx -title -status-code -tech-detect -silent > "$OUTPUT_DIR/$target/metadata.json"
-  
-  # Phase 3: Vulnerability scanning
-  cat "$OUTPUT_DIR/$target/metadata.json" | jq -r '.url' | \
-    nuclei -t $HOME/nuclei-templates/ -severity critical,high -o "$OUTPUT_DIR/$target/nuclei.txt"
-  
-  # Phase 4: Alert on critical
-  if [ -s "$OUTPUT_DIR/$target/nuclei.txt" ]; then
-    curl -X POST -H "Content-Type: application/json" \
-      -d '{"text":"Critical on '$target': $(cat '$OUTPUT_DIR/$target/nuclei.txt')"}' \
-      $SLACK_WEBHOOK_URL
-  fi
-done < "$SCOPE_FILE"
+# Subdomain enumeration
+subfinder -d $DOMAIN -o $DOMAIN/recon/subs.txt
+amass enum -d $DOMAIN -o $DOMAIN/recon/amass.txt
+sort -u $DOMAIN/recon/*.txt > $DOMAIN/recon/all-subs.txt
+
+# Probe alive hosts
+cat $DOMAIN/recon/all-subs.txt | httpx -o $DOMAIN/recon/live-subs.txt
+
+# Screenshot
+cat $DOMAIN/recon/live-subs.txt | aquatone -out $DOMAIN/recon/screenshots
+
+# Nuclei scan
+nuclei -l $DOMAIN/recon/live-subs.txt -o $DOMAIN/scanning/nuclei.txt
+
+# Parameter discovery
+cat $DOMAIN/recon/live-subs.txt | while read url; do
+  waybackurls $url | uro >> $DOMAIN/recon/params.txt
+done
+
+# XSS scanning
+cat $DOMAIN/recon/params.txt | dalfox pipe -o $DOMAIN/exploitation/xss.txt
+
+# Generate report
+python3 generate_report.py $DOMAIN
 ```
 
-## Notification-Driven Hunting
-```bash
-# Monitor for new subdomains daily
-if [ -f "$OUTPUT_DIR/$target/yesterday.txt" ]; then
-  diff "$OUTPUT_DIR/$target/yesterday.txt" "$OUTPUT_DIR/$target/subs_sorted.txt" | \
-    grep ">" | mail -s "New subdomains: $target" you@example.com
-fi
-cp "$OUTPUT_DIR/$target/subs_sorted.txt" "$OUTPUT_DIR/$target/yesterday.txt"
-```
-
-## Custom Burp Extension Pattern
+## Burp Automation (Python with Montoya API)
 ```python
+# Burp extension for automated scanning
 from burp import IBurpExtender, IScannerCheck
 
-class BurpExtender(IBurpExtender, IScannerCheck):
+class BurpExtender(IBurpExtender):
     def registerExtenderCallbacks(self, callbacks):
-        self._callbacks = callbacks
-        self._helpers = callbacks.getHelpers()
-        callbacks.setExtensionName("Custom Scanner")
+        self.callbacks = callbacks
+        callbacks.setExtensionName("Auto-Intruder")
         callbacks.registerScannerCheck(self)
+```
+
+## Automation Tools
+
+### httpx
+Fast HTTP probe for alive hosts
+`cat subs.txt | httpx -title -status-code -tech-detect`
+
+### gau/waybackurls
+Fetch known URLs from Wayback Machine
+`echo target.com | gau | uro > urls.txt`
+
+### uro
+URL deduplication tool
+`cat urls.txt | uro`
+
+### unfurl
+Extract URL components for analysis
+`cat urls.txt | unfurl -u format %p%?%q`
+
+## CI/CD Integration
+
+### GitHub Actions Recon
+```yaml
+name: Automated Recon
+on: [push, workflow_dispatch]
+jobs:
+  recon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Run Subfinder
+        run: subfinder -d ${{ secrets.DOMAIN }}
+      - name: Nuclei Scan
+        run: nuclei -u https://${{ secrets.DOMAIN }}
 ```

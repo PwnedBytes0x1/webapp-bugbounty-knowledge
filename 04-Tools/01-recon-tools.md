@@ -1,68 +1,51 @@
-# Reconnaissance Tools: Configuration & Advanced Usage
+# Reconnaissance Tools
 
-## Subdomain Discovery
+## Subdomain Enumeration
 
-### subfinder (Passive)
-```bash
-subfinder -d target.com -all -silent -o subs.txt
-# -all enables ALL passive sources
-# Key sources: crtsh, certspotter, dnsdb, hackertarget, securitytrails, virustotal
-```
+### Passive
+- **Subfinder**: Fast passive subdomain enumeration
+  `subfinder -d target.com -o subs.txt`
+- **Amass**: OWASP tool with passive + active modes
+  `amass enum -d target.com`
+- **Assetfinder**: Gather subdomains from various sources
+  `assetfinder --subs-only target.com`
+- **Sublist3r**: Aggregates from search engines
+  `sublist3r -d target.com`
+- **Crt.sh**: Certificate transparency logs
+  `curl -s "https://crt.sh/?q=%25.target.com&output=json" | jq -r '.[].name_value' | sort -u`
 
-### amass
-```bash
-# Passive enumeration
-amass enum -passive -d target.com -o amass.txt
-# Active enumeration (queries NS, attempts zone transfer)
-amass enum -active -d target.com -o active.txt
-# Intel mode (related domains via ASN, reverse WHOIS)
-amass intel -whois -d target.com
-```
-
-### dnsx (DNS Probing)
-```bash
-# Resolve A, AAAA, CNAME records
-cat subs.txt | dnsx -a -aaaa -cname -resp -silent -o resolved.txt
-# Wildcard filtering
-dnsx -l subs.txt -wd -silent
-```
-
-## Service Discovery
-
-### httpx (HTTP Probing)
-```bash
-cat subs.txt | httpx -title -status-code -tech-detect -follow-redirects \
-  -web-server -ip -cname -cdn -silent -o metadata.json
-```
-
-### naabu (Port Scanning)
-```bash
-naabu -l hosts.txt -top-ports 1000 -silent -o ports.txt
-naabu -l hosts.txt -p - -rate 1000  # Full scan
-```
+### Active
+- **Gobuster**: DNS bruteforce
+  `gobuster dns -d target.com -w subdomains.txt`
+- **dnsrecon**: DNS record enumeration
+  `dnsrecon -d target.com -t brt -D subdomains.txt`
 
 ## Content Discovery
 
-### ffuf
-```bash
-# Directory brute-force
-ffuf -u https://target.com/FUZZ -w wordlist.txt -c -t 100 -fc 403,404
-# Parameter fuzzing
-ffuf -u https://target.com/api/FUZZ -w params.txt -mc all -fc 400
-# Recursive with depth
-ffuf -u https://target.com/FUZZ -w big.txt -recursion -recursion-depth 3
-# VHOST discovery
-ffuf -u https://target.com -H "Host: FUZZ.target.com" -w subs.txt -fc 200
-```
+### Directory/File Bruteforce
+- **Feroxbuster**: Fast recursive content discovery
+  `feroxbuster -u https://target.com -w /usr/share/wordlists/seclists/Discovery/Web-Content/raft-large-directories.txt`
+- **ffuf**: Flexible fuzzer
+  `ffuf -u https://target.com/FUZZ -w /usr/share/wordlists/seclists/Discovery/Web-Content/raft-large-files.txt`
+- **Dirsearch**: Web path scanner
+  `dirsearch -u https://target.com`
 
-### gospider (Crawler)
-```bash
-gospider -s https://target.com -d 3 -c 50 -t 30 --js -o spider_output
-gospider -S subs.txt -d 2 --subs -o cross_spider
-```
+## Technology Fingerprinting
+- **wappalyzer**: Browser extension + CLI
+- **WhatWeb**: Website profiling
+  `whatweb https://target.com`
+- **WafW00f**: WAF detection
+  `wafw00f https://target.com`
+- **BuiltWith**: Technology lookup
 
-## Favicon/Hash Scanning
-```bash
-python3 favicon_hash.py -d target.com
-# Search Shodan: http.favicon.hash:<hash>
-```
+## Screenshot Collection
+- **EyeWitness**: Automatically screenshots web services
+  `eyewitness --web -f urls.txt`
+- **Aquatone**: Screenshot + HTML report
+  `cat subs.txt | aquatone`
+
+## Network Scanning
+- **masscan**: Fast port scanning
+  `masscan -p1-65535 --rate=1000 target.com`
+- **nmap**: Detailed service detection
+  `nmap -sV -sC -p- target.com`
