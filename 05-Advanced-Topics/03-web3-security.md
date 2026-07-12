@@ -1,55 +1,36 @@
-# Web3 / Smart Contract Security
+# Web3 Security: 2026 Reference
 
-## Attack Vectors
+## Smart Contract Vulnerabilities
 
-### Re-entrancy
-```solidity
-// Vulnerable: sends before updating state
-function withdraw(uint256 amount) public {
-    require(balances[msg.sender] >= amount);
-    (bool success, ) = msg.sender.call{value: amount}("");
-    require(success);
-    balances[msg.sender] -= amount;
-}
+| Vulnerability | Description | Impact |
+|---------------|-------------|--------|
+| Reentrancy | External call before state update | Theft of funds |
+| Flash loan attacks | Unc-collateralized loan + price manipulation | Protocol drain |
+| Oracle manipulation | Manipulating price feed input | False pricing |
+| Access control | Missing onlyOwner modifier | Admin-level attacks |
+| Integer overflow | Arithmetic without SafeMath | Balance manipulation |
+| Front-running | TX ordering manipulation | MEV extraction |
 
-// Safe: update state first
-function withdraw(uint256 amount) public {
-    require(balances[msg.sender] >= amount);
-    balances[msg.sender] -= amount;
-    (bool success, ) = msg.sender.call{value: amount}("");
-    require(success);
-}
-```
+## Common Attack Patterns
 
-### Front-running
-- Transaction ordering manipulation
-- Sandwich attacks on DEX trades
+### DeFi
+- Price oracle manipulation (TWAP vs spot)
+- Liquidity pool draining via sandwich attacks
+- Governance token takeover (flash loan + proposal)
+- Cross-chain bridge attacks (wormhole, nomad patterns)
 
-### Flash Loan Attacks
-- Oracle manipulation
-- Price manipulation via large loans
+### NFT
+- Floor price manipulation
+- Trait-based rarity exploitations
+- Phishing via malicious marketplace listings
+- Royalty bypass
 
-### Other
-- Integer overflow/underflow
-- Access control issues (tx.origin vs msg.sender)
-- Short address attack
-- Signature replay attacks
+## Testing Tools
+- **Foundry**: Fast Rust-based Solidity testing framework
+- **Slither**: Static analysis for Solidity
+- **Echidna**: Fuzzing for Solidity
+- **Mythril**: Security analysis for EVM bytecode
 
-## Web3 DApp Testing
-
-### MetaMask Interaction
-- Check how dApp interacts with wallet
-- Test with different chain IDs
-- Verify signature requests
-
-### RPC Endpoint Testing
-- Infura/Alchemy endpoint enumeration
-- Rate limiting on RPC calls
-
-### Common CVEs
-| Vulnerability | Type | Severity |
-|---------------|------|----------|
-| Re-entrancy (DAO Hack 2016) | Smart Contract | Critical |
-| Flash Loan Attack | DeFi | High |
-| Oracle Manipulation | DeFi | High |
-| Front-running | Transaction | Medium |
+## Web3 Bug Bounty Platforms
+- Immunefi (largest Web3 bug bounty)
+- Hats Finance (decentralized)

@@ -1,45 +1,35 @@
-# Vulnerability Scanning Tools
+# Scanning Tools: 2026 Reference
 
-## Web Application Scanners
+## Vulnerability Scanners
 
-### Burp Suite
-- **Active Scan**: Automated crawling + scanning
-- **Passive Scan**: Background analysis without invasive payloads
-- **Extensions**: Autorize, AuthMatrix, Collaborator, Sequencer
+### Nuclei (ProjectDiscovery)
+Template-based scanner. 8000+ templates in default install.
+- **nuclei -u https://target.com -t ~/nuclei-templates/** — scan all templates
+- **nuclei -l live.txt -t cves/** — CVE-only scan
+- **nuclei -t exposures/configs/ -t exposures/tokens/** — secret/config scanning
+- **-severity critical,high** — Prioritize impact
+- **-headless** — Browser-based template execution
+- **-stats** — Progress tracking
+- Custom templates in YAML format with matchers (status, regex, dsl, word, binary)
 
-### OWASP ZAP
-- **Automated Scan**: Quick scan with spider
-- **Active Scan**: Targeted vulnerability detection
-- **HUD**: Heads-up display for manual testing
+### Katana (ProjectDiscovery)
+Crawler for endpoint discovery.
+- **katana -u https://target.com -d 3 -silent -o endpoints.txt**
+- **-js-crawl**: Parse JavaScript for endpoints
+- **-known-files all**: robots.txt, sitemap.xml, security.txt
+- **-aff**: Automatic form filling
+- **-headless**: Browser-based crawling (JS rendering)
 
-## Specialized Scanners
+### Uncover (ProjectDiscovery)
+Shodan/Censys/Fofa/Publicwww search aggregator.
+- **uncover -q 'ssl.cert.subject.cn:target.com' -e shodan,censys**
 
-### Nuclei (Template-based)
-`nuclei -u https://target.com -t cves/ -t exposures/ -t misconfigurations/`
+### Scanner Comparison
 
-### Nikto
-`nikto -h https://target.com`
-
-### Skipfish
-`skipfish -o output_dir https://target.com`
-
-## Cloud Security Scanners
-
-### AWS
-- **ScoutSuite**: Multi-cloud auditing
-  `ScoutSuite --provider aws`
-- **Prowler**: AWS security assessment
-  `prowler -M text`
-
-### GCP
-- **GCPBucketBrute**: GCP bucket enumeration
-  `gcpbucketbrute -k target`
-
-### Azure
-- **Stormspotter**: Azure attack surface mapper
-
-## API Scanners
-- **Arjun**: HTTP parameter discovery
-  `arjun -u https://target.com/api`
-- **Kiterunner**: API path bruteforce
-  `kr scan https://target.com -w api-routes.txt`
+| Scanner | Type | Best For |
+|---------|------|----------|
+| Nuclei | Template-based | CVE, misconfig, exposure |
+| Nikto | Signature-based | Legacy web servers |
+| WPScan | CMS-specific | WordPress |
+| OpenVAS | Full suite | Comprehensive |
+| Nexpose | Commercial | Compliance-focused |

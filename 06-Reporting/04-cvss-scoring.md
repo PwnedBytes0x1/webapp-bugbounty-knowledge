@@ -1,48 +1,23 @@
-# CVSS v3.1 Scoring Guide
+# CVSS Scoring: Quick Reference
 
-## Base Metrics
+## CVSS 3.1 Calculator
+https://www.first.org/cvss/calculator/3.1
 
-### Attack Vector (AV)
-- **Network** (N): Remotely exploitable
-- **Adjacent** (A): Same network segment
-- **Local** (L): Requires local access
-- **Physical** (P): Physical interaction
+### Base Score Ranges
+| Severity | Score Range |
+|----------|-------------|
+| Critical | 9.0 - 10.0 |
+| High | 7.0 - 8.9 |
+| Medium | 4.0 - 6.9 |
+| Low | 0.1 - 3.9 |
+| None | 0.0 |
 
-### Attack Complexity (AC)
-- **Low** (L): No special conditions
-- **High** (H): Requires specific conditions
+### Bug Bounty Mapping
+- Critical: RCE, auth bypass, mass data exposure
+- High: SSRF with metadata, stored XSS, SQLi w/ data
+- Medium: Reflected XSS, blind SQLi, open redirect
+- Low: Missing headers, INFO disclosure
+- None: Config/best practice observations (usually)
 
-### Privileges Required (PR)
-- **None** (N): Unauthenticated
-- **Low** (L): Regular user
-- **High** (H): Admin privileges
-
-### User Interaction (UI)
-- **None** (N): No victim action
-- **Required** (R): Victim must perform action
-
-### Scope (S)
-- **Unchanged** (U): Component stays same
-- **Changed** (C): Impacts different component
-
-### Confidentiality / Integrity / Availability (C/I/A)
-- **None** (N): No impact
-- **Low** (L): Limited disclosure
-- **High** (H): Full compromise
-
-## Example Vectors
-
-### Critical RCE
-`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (9.8)
-
-### Stored XSS (admin panel)
-`CVSS:3.1/AV:N/AC:L/PR:L/UI:R/S:C/C:L/I:L/A:N` (5.4)
-
-### Reflected XSS
-`CVSS:3.1/AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N` (6.1)
-
-### SQLi
-`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H` (9.8)
-
-### SSRF (cloud metadata)
-`CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:C/C:H/I:N/A:N` (8.8)
+### Temporal & Environmental
+Bug bounty typically uses Base Score only (no temporal/environmental modifiers). Only modify for specific program guidance.

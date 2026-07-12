@@ -1,71 +1,38 @@
-# Mobile Application Security Testing
+# Mobile Testing Methodology: 2026 Reference
 
-## Android Static Analysis
+## Setup Pipeline
+1. Install app on rooted/jailbroken device (or emulator)
+2. Configure Burp Suite as proxy (CA cert installed)
+3. Bypass SSL pinning (Frida script: `frida -U -f com.app -l ssl_bypass.js --no-pause`)
+4. Intercept and analyze traffic
 
-```bash
-jadx-gui target.apk
-apktool d target.apk -o target_decoded/
-cat target_decoded/AndroidManifest.xml
-```
+## Key Checks
 
-### Key Findings
-- Hardcoded secrets: `grep -r "api_key|password|secret|token" target_decoded/`
-- Exported components: `android:exported="true"`
-- WebView vulns: `setJavaScriptEnabled(true)`, `addJavascriptInterface()`
-- Insecure storage: plaintext in SharedPreferences, SQLite
-- Deep links without validation
+### API Communication
+- All API calls from mobile → web API (likely vulnerable to same bugs)
+- Custom headers, tokens, device IDs in requests
+- Auth tokens stored in plaintext SharedPreferences
+- Biometric authentication bypass (fallback to PIN)
 
-## Android Dynamic Analysis
+### Local Storage
+- SQLite databases in `/data/data/com.app/databases/`
+- SharedPreferences XML in `/data/data/com.app/shared_prefs/`
+- Realm databases
+- Logcat output (adb logcat | grep -i password)
 
-```bash
-# SSL Pinning Bypass
-objection -g com.target.app explore
-android sslpinning disable
+### Deep Link Handling
+- Test all registered URL schemes
+- Intent injection via malicious apps
+- Deep link parameter pollution
 
-# Frida Runtime Manipulation
-frida -U -l bypass_root.js com.target.app
-
-# Burp Proxy
-adb shell settings put global http_proxy 192.168.1.100:8080
-```
-
-### Common Vulns
-1. Root detection bypass -> weak client-side control
-2. Insecure data storage (tokens in SharedPreferences)
-3. Missing SSL pinning -> MITM
-4. Deep link hijacking -> intent interception
-5. WebView JS bridge -> XSS to RCE
-6. Exported Content Providers -> SQLi, data leak
-
-## iOS Testing
-
-```bash
-# Dump decrypted IPA
-frida-ios-dump -u root -H 192.168.1.100 "Target App"
-
-# Class dump (Obj-C)
-class-dump -H TargetApp.app -o headers/
-
-# Objection
-objection --gadget "Target App" explore
-```
-
-### iOS-Specific Findings
-- Keychain: kSecAttrAccessibleAlways = weak
-- ATS bypass: NSAllowsArbitraryLoads = true
-- URL scheme hijacking
-- Pasteboard leakage
-
-## Mobile API Testing
-
-```bash
-# Extract API endpoints from decompiled app
-grep -rohP 'https?://[^"'"' ]+' target_decoded/ | sort -u
-```
-
-## Tooling
-```bash
-docker run -p 8000:8000 opensecurity/mobile-security-framework-mobsf
-pip install frida-tools
-pip install objection
-```
+## OWASP Mobile Top 10 (2024)
+1. Improper Platform Usage
+2. Insecure Data Storage
+3. Insecure Communication
+4. Insecure Authentication
+5. Insufficient Cryptography
+6. Insecure Authorization
+7. Client Code Quality
+8. Code Tampering
+9. Reverse Engineering
+10. Extraneous Functionality

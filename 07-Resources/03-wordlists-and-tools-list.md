@@ -1,68 +1,40 @@
-# Wordlists & Tools Reference
+# Wordlists & Tool Reference: 2026
 
 ## Essential Wordlists
 
-### Content Discovery
+### SecLists (Daniel Miessler)
+https://github.com/danielmiessler/SecLists
+- Discovery/Web-Content/: Directories, files, parameters
+- Discovery/DNS/: Subdomain wordlists
+- Usernames/, Passwords/: Credential lists
+- Fuzzing/: Payload collections
+
+### Other Wordlists
+- **raft (large/medium/small)** — Web content discovery
+- **commonspeak2** — Derived from BigQuery
+- **Assetnote wordlists** — Best for directory brute-force
+- **OneForAll wordlist** — Chinese subdomain wordlist
+- **jhaddix subdomain list** — ~2M subdomains
+- **nn9ed wordlist** — Focused API endpoints
+
+## Tool Installation
+
+### ProjectDiscovery Tools (pdtm)
 ```bash
-# Directory/file brute-force
-/usr/share/wordlists/dirb/common.txt           # ~4,600 entries
-/usr/share/seclists/Discovery/Web-Content/      # Full SecLists collection
-SecLists/Discovery/Web-Content/raft-large-words.txt  # ~140k entries
-
-# Parameters
-SecLists/Discovery/Web-Content/burp-parameter-names.txt
-# Custom: all common params + framework-specific (Laravel params, Spring params)
+curl -s https://raw.githubusercontent.com/projectdiscovery/pdtm/main/install.sh | bash
+pdtm install subfinder httpx nuclei naabu katana uncover dnsx asnmap mapcidr chaos
 ```
 
-### Subdomains
+### Other Essential
 ```bash
-SecLists/Discovery/DNS/subdomains-top1million-110000.txt
-# Custom: curated from real bounty targets (~150k entries)
-# Best: combine multiple wordlists + jq filter unique
+go install github.com/tomnomnom/waybackurls@latest
+go install github.com/tomnomnom/assetfinder@latest
+go install github.com/ffuf/ffuf/v2@latest
+go install github.com/jaeles-project/gospider@latest
+pip install sqlmap arjun uro
 ```
 
-### XSS Payloads
-```
-PayloadsAllTheThings/XSS Injection/
-# Polyglots, event handlers, mXSS, dom clobbering
-```
-
-### SQLi Payloads
-```
-# Time-based, error-based, union, blind, stacked queries
-PayloadsAllTheThings/SQL Injection/
-```
-
-### Username/Password
-- **SecLists/Passwords/CommonCredentials/** - top 100k passwords
-- **SecLists/Passwords/darkc0de.txt** - darkc0de list
-- **rockyou.txt** - classic (~14GB, 14M passwords)
-- **Have I Been Pwned passwords** - 613M passwords (NLP processed)
-
-## Must-Have Repos
-
-| Repo | Purpose |
-|------|---------|
-| PayloadsAllTheThings | Comprehensive payload collection |
-| SecLists | Ultimate wordlist collection |
-| HackTricks | Technique encyclopedia |
-| swisskyrepo/PayloadsAllTheThings | Payloads by vulnerability |
-| OWASP/CheatSheetSeries | OWASP cheat sheets |
-| ihebski/DefaultCreds-cheat-sheet | Default credentials |
-
-## Custom Wordlist Generation
-
-### From Target
+### Resolvers List
 ```bash
-# Extract words from JS files
-cat all.js | grep -ohP '"[a-zA-Z0-9_-]+"' | sort -u > custom_words.txt
-# Extract from source
-cat source.html | grep -ohP '"[a-zA-Z0-9_-]+"' | sort -u > html_words.txt
-# Combine with common wordlists
-cat custom_words.txt common.txt | sort -u > combined.txt
-```
-
-### CeWL (Custom Word List)
-```bash
-cewl -d 2 -m 5 https://target.com -w target_words.txt
+wget -O resolvers.txt https://raw.githubusercontent.com/trickest/resolvers/main/resolvers.txt
 ```

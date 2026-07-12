@@ -1,73 +1,38 @@
-# Screenshots & PoC: Best Practices
+# Screenshots & PoC: 2026 Guide
 
-## Screenshot Guidelines
+## Screenshot Best Practices
+- Show both the request (Burp Repeater, curl output) AND the result
+- Annotate key elements (red box around exfiltrated data)
+- Include browser URL bar and dev tools for XSS
+- For blind vulnerabilities: show collaborator callback
+- Resolution: 1920x1080 window, readable font size
+- Format: PNG is standard; GIF for demonstrations
 
-### Required Elements
-- **URL bar visible** (proves location/target)
-- **Payload visible** (proves injection point)
-- **Proof of execution** (alert box, network request, collaborator ping)
-- **Developer Tools** (Console tab showing errors, Network tab showing request)
+## PoC Types
 
-### Tools
+### Simple PoC (curl)
 ```bash
-# Flameshot (Linux)
-flameshot gui
-
-# Built-in macOS/Linux screenshot
-# Cmd+Shift+4 (macOS) / PrtSc (Linux)
-
-# Browser DevTools full-page screenshot
-devtools -> Ctrl+Shift+P -> "Capture full size screenshot"
+curl -s 'https://target.com/search?q=<script>alert(1)</script>' | grep -i error
 ```
 
-### Screenshot Checklist
-- [ ] URL visible
-- [ ] No sensitive data exposed (redact if needed)
-- [ ] Payload clearly highlighted/annotated
-- [ ] Proof of impact visible
-- [ ] Resolution high enough to read text
-
-## Proof of Concept Types
-
-### 1. Direct PoC (Simple)
-```
-https://target.com/search?q=<script>alert(document.cookie)</script>
-```
-
-### 2. Interactive PoC (Self-hosted)
+### Full PoC (HTML file)
 ```html
-<html>
-<body>
-<form action="https://target.com/change_email" method="POST">
-  <input type="hidden" name="email" value="attacker@evil.com">
-</form>
-<script>document.forms[0].submit()</script>
-</body>
-</html>
+<html><body><form action="https://target.com/forgot" method="POST">
+<input name="email" value="victim@test.com">
+</form><script>document.forms[0].submit();</script></body></html>
 ```
 
-### 3. Interact.sh / Collaborator PoC (Blind/OOB)
-- Include DNS/HTTP interaction log screenshot
-- Show that the target server resolved/interacted with collaborator domain
+### Burp Export
+Use "Copy as curl command" from Burp Repeater for exact recreation.
 
-### 4. Script PoC (Complex)
-```javascript
-// Script demonstrating chained exploit
-fetch('https://target.com/api/transfer', {
-  method: 'POST',
-  credentials: 'include',
-  headers: {'Content-Type': 'application/json'},
-  body: JSON.stringify({to: 'attacker', amount: 1000})
-}).then(r => r.text()).then(console.log)
-```
+### Video PoC
+- Use for multi-step chains (race conditions, business logic)
+- Screen capture tool + audio explanation
+- Keep under 2 minutes
+- Upload as unlisted YouTube or attach to report
 
-## Burp Suite PoC Export
-```
-# Right-click request -> "Copy as curl command"
-curl -X POST 'https://target.com/api' -H 'Cookie: session=...' -d 'payload'
-```
-
-## Video PoCs (For Complex Chains)
-- Use `peek` (Linux) or built-in screen recorder
-- Max 30 seconds, focus on critical steps
-- Annotate with text overlays
+## Tools
+- **Flameshot**: Screenshot + annotation (Linux)
+- **ShareX**: Screenshot + GIF + video (Windows)
+- **Kap**: Screen capture (macOS)
+- **Screenity**: Chrome extension for video PoC

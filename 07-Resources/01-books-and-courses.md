@@ -1,53 +1,42 @@
-# Books & Courses
+# Books & Courses: 2026 Reference
 
 ## Books
 
-### Web Application Security
-| Book | Author | Focus |
-|------|--------|-------|
-| The Web Application Hacker's Handbook (2nd Ed) | Stuttard & Pinto | Comprehensive web app security |
-| Real-World Bug Hunting | Peter Yaworski | Bug bounty methodology |
-| Bug Bounty Bootcamp | Vickie Li | Beginner to intermediate |
-| Web Hacking 101 | Peter Yaworski | Bug bounty case studies |
-| The Tangled Web | Michal Zalewski | Browser security internals |
-| SQL Injection Attacks and Defense | Justin Clarke | Deep SQLi coverage |
-| XSS Attacks | Seth Fogie & Jeremiah Grossman | Cross-site scripting mastery |
+### Web Security (Fundamentals)
+- **The Web Application Hacker's Handbook** (Stuttard & Pinto) — Classic foundation
+- **OWASP Testing Guide v5** — Free, canonical reference
+- **Real-World Bug Hunting** (Peter Yaworski) — Bug bounty case studies
+- **Bug Bounty Bootcamp** (Vickie Li) — Modern hunting methodology
+- **Web Security Academy** (PortSwigger) — Free, comprehensive labs
 
-### Advanced / Specialized
-| Book | Author | Focus |
-|------|--------|-------|
-| Black Hat Go | Steele, Patten, Kottmann | Go for security tooling |
-| Practical Binary Analysis | Dennis Andriesse | Reverse engineering |
-| Attacking Network Protocols | James Forshaw | Protocol hacking |
-| The Art of Memory Forensics | Ligh et al. | Memory analysis |
+### Advanced
+- **Black Hat GraphQL** (Dolev Farhi & Nick Aleks) — API hacking
+- **Hands-On Bug Bounty Hunting** (Irfan Shakeel) — Practical
+- **Browser Security Handbook** (Google) — CSP, SOP, origin semantics
 
-### Cloud & Infrastructure
-| Book | Author | Focus |
-|------|--------|-------|
-| AWS Security | Dylan Shields | Cloud security fundamentals |
-| Kubernetes Security | Liz Rice | Container security |
-| Practical Cloud Security | Chris Dotson | Cloud best practices |
+### Cloud Security
+- **AWS Security** (Dylan Shields) — Cloud pentesting
+- **Cloud Security Attacks** — Cloud-specific vulnerability classes
 
-## Courses & Certifications
+## Courses (Free)
 
-### Free
-- **PortSwigger Web Security Academy** - interactive labs for all vuln types
-- **PentesterLab** - hands-on exercises (some free)
-- **Hacker101** - free video course by HackerOne
-- **OWASP WebGoat** - deliberately vulnerable app with lessons
-- **TryHackMe** - beginner-friendly rooms (subscription for full access)
+### PortSwigger Web Security Academy
+https://portswigger.net/web-security
+- 200+ labs, all free
+- All vulnerability classes covered
+- Lab solutions + learning paths
 
-### Paid
-- **OSCP (PWK/OSCP)** - gold standard for offensive security
-- **OSWE (AWAE/OSWE)** - web application expert
-- **Burp Suite Certified Practitioner** - practical Burp skills
-- **SANS SEC542 / SEC642** - web app security (expensive)
-- **Bugcrowd University** - free, structured curriculum
+### PentesterLab
+https://pentesterlab.com
+- Hands-on exercises
+- Various difficulty levels
+- Shared subscription model
 
-### Recommended Learning Path
-1. PortSwigger Academy (all labs)
-2. Hacker101 CTF challenges
-3. PentesterLab PRO subscription
-4. Real-world bug hunting (start with VDPs)
-5. OSCP for foundational skills
-6. OSWE for web specialization
+### Hacker101 (HackerOne)
+https://hackerone.com/hacker101
+- Video content + CTF challenges
+- Free and self-paced
+
+### OWASP WebGoat & Juice Shop
+- Self-hosted vulnerable apps
+- Defensive + offensive training

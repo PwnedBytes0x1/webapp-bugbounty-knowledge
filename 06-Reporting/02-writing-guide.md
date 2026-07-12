@@ -1,44 +1,27 @@
 # Report Writing Guide
 
-## Principles
+## Quick Reference
 
-### Clarity
-- Write for the triager, not other hackers
-- Assume minimal context about the application
-- Be specific: "The XSS occurs in the bio field at /profile/update when the value contains <script>alert(1)</script>"
+### Title Format
+`[Vulnerability Type] in [Endpoint/Feature] leading to [Impact]`
 
-### Reproducibility
-- Every step must be exact and repeatable
-- Include complete curl commands, not partial snippets
-- Screenshots/videos should show the browser URL bar
+Examples:
+- "Stored XSS in profile comments leading to session theft"
+- "IDOR in /api/orders/{id} exposing other users' payment data"
+- "SSRF in PDF generator accessing EC2 metadata"
 
-### Impact
-- Explain business impact, not just technical
-- "An attacker can steal admin sessions, leading to account takeover" (not just "XSS fires")
+### Severity Guidelines
+| Severity | Typical Impact |
+|----------|---------------|
+| Critical | RCE, auth bypass → account takeover, SSRF → metadata credentials |
+| High | Stored XSS, SQLi with data exfiltration, IDOR with PII |
+| Medium | Reflected XSS, Blind SQLi, open redirect |
+| Low | Information disclosure, missing security headers |
+| Informational | CSP misconfig, fingerprint exposure |
 
-## Structure
-
-### Good Title Examples
-- "Stored XSS in user profile bio via HTML injection"
-- "IDOR in GET /api/orders allows reading any user's order details"
-- "Authentication bypass via JWT none algorithm on login endpoint"
-
-### Bad Title Examples
-- "XSS bug"
-- "Security issue"
-- "IDOR"
-
-## CVSS Justification
-Always include CVSS v3.1 vector and score. Justify each metric:
-- AV:N (network) - remotely exploitable
-- AC:L (low complexity) - no special conditions
-- PR:N (no privileges) - unauthenticated
-- UI:N (no user interaction) - no victim action required
-- S:U (unchanged) - or S:C if scope changed
-- C:H/I:H/A:H - full impact
-
-## Common Mistakes
-- Including API keys/tokens in POC
-- Not clearing cookies/session before retesting
-- Assuming the triager has the same tools
-- Overstating impact without evidence
+### What Triagers Look For
+1. **Uniqueness**: Is this a known/resolved issue? (CVE check)
+2. **Clarity**: Can they reproduce it in under 30 seconds?
+3. **Impact**: Does this cross the program's minimum severity?
+4. **Proof**: Is there a clear demonstration?
+5. **Scope**: Is this in scope? (always double-check)

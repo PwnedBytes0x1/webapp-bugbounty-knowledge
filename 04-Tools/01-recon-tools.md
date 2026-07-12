@@ -1,51 +1,40 @@
-# Reconnaissance Tools
+# Reconnaissance Tools: 2026 Reference
 
-## Subdomain Enumeration
+## Passive Tools
 
-### Passive
-- **Subfinder**: Fast passive subdomain enumeration
-  `subfinder -d target.com -o subs.txt`
-- **Amass**: OWASP tool with passive + active modes
-  `amass enum -d target.com`
-- **Assetfinder**: Gather subdomains from various sources
-  `assetfinder --subs-only target.com`
-- **Sublist3r**: Aggregates from search engines
-  `sublist3r -d target.com`
-- **Crt.sh**: Certificate transparency logs
-  `curl -s "https://crt.sh/?q=%25.target.com&output=json" | jq -r '.[].name_value' | sort -u`
+| Tool | Sources | API Key Required | Output |
+|------|---------|-----------------|--------|
+| subfinder | 30+ (PD ecosystem) | Some sources | Subdomains |
+| amass | Deepest coverage | Free tier available | Subdomains + ASN |
+| assetfinder | Minimal, fast | No | Subdomains |
+| chaoss | PD curated dataset | Yes (free) | Subdomains |
+| httpx | - | No | Live hosts, titles, tech |
+| interactsh | PD | No | OOB collaborator |
 
-### Active
-- **Gobuster**: DNS bruteforce
-  `gobuster dns -d target.com -w subdomains.txt`
-- **dnsrecon**: DNS record enumeration
-  `dnsrecon -d target.com -t brt -D subdomains.txt`
+## Active Tools
 
-## Content Discovery
+### DNS
+- **puredns**: Wildcard-filtered resolution with DoH support
+- **shuffledns**: Mass DNS resolver for brute-forced subs
+- **dnsx**: Multi-type DNS query (A, AAAA, CNAME, TXT, MX, SOA)
 
-### Directory/File Bruteforce
-- **Feroxbuster**: Fast recursive content discovery
-  `feroxbuster -u https://target.com -w /usr/share/wordlists/seclists/Discovery/Web-Content/raft-large-directories.txt`
-- **ffuf**: Flexible fuzzer
-  `ffuf -u https://target.com/FUZZ -w /usr/share/wordlists/seclists/Discovery/Web-Content/raft-large-files.txt`
-- **Dirsearch**: Web path scanner
-  `dirsearch -u https://target.com`
+### HTTP
+- **httpx**: Probing, title, status, tech detect, CDN check
+- **httprobe**: Simple host probing
+- **aquatone**: Visual inspection, screenshots
 
-## Technology Fingerprinting
-- **wappalyzer**: Browser extension + CLI
-- **WhatWeb**: Website profiling
-  `whatweb https://target.com`
-- **WafW00f**: WAF detection
-  `wafw00f https://target.com`
-- **BuiltWith**: Technology lookup
+### Infrastructure
+- **bgpview.io API**: ASN to prefix mapping
+- **ipinfo.io API**: IP -> org, ASN, location
+- **browser-x**: Browser automation for recon
 
-## Screenshot Collection
-- **EyeWitness**: Automatically screenshots web services
-  `eyewitness --web -f urls.txt`
-- **Aquatone**: Screenshot + HTML report
-  `cat subs.txt | aquatone`
+## Pipeline Integration
 
-## Network Scanning
-- **masscan**: Fast port scanning
-  `masscan -p1-65535 --rate=1000 target.com`
-- **nmap**: Detailed service detection
-  `nmap -sV -sC -p- target.com`
+### Default PD Chain
+subfinder -d target.com -silent | puredns resolve -r resolvers.txt | httpx -silent -title -status-code -tech-detect -o live.txt
+
+### Full Recon Pipeline
+subfinder -d target.com -all |   puredns resolve -r resolvers.txt |   naabu -top-ports 1000 -silent -json |   httpx -silent -title -status-code -tech-detect -mc 200 |   nuclei -t ~/nuclei-templates/ -o vulns.txt
+
+### Cloud Asset Discovery
+chaos -d target.com -silent | httpx -silent -tech-detect | grep -E 'S3|Cloud|Azure|GCP'

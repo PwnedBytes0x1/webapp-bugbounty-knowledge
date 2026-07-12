@@ -1,80 +1,32 @@
-# Bug Bounty Checklist & Report Templates
+# Recon Checklist & Templates
 
-## Pre-Hunt Checklist
+## Pre-Scanning Checklist
+- [ ] Scope confirmed (root domain, wildcards, excluded targets)
+- [ ] Authorization confirmed (written scope, in-scope assets)
+- [ ] Rate-limiting expectations reviewed
+- [ ] Out-of-band collaborator ready (interactsh / Burp Collaborator)
+- [ ] API keys configured (~/.config/subfinder/provider-config.yaml)
+- [ ] Resolvers list downloaded and verified
 
-- [ ] Read program scope, rules, and in-scope/out-of-scope
-- [ ] Read past disclosed reports (HackerOne Hacktivity, Bugcrowd disclosures)
-- [ ] Identify target technologies (Wappalyzer, BuiltWith)
-- [ ] Set up Burp project + scope highlighting
-- [ ] Configure Collaborator client / Interact.sh
-- [ ] Ensure proxy is running (Burp, Caido, ZAP)
-- [ ] Check for authentication: guest + low-priv + admin
-- [ ] Take baseline screenshot of target (for Hall of Fame)
-- [ ] Review common vulns for this tech stack
+## Recon Checklist
+- [ ] Passive subdomain enumeration (subfinder + chaos + crt.sh)
+- [ ] Certificate Transparency log analysis
+- [ ] ASN -> IP range expansion
+- [ ] DNS brute force (puredns / shuffledns)
+- [ ] DNS zone transfer attempt
+- [ ] Port scanning (naabu top-1000)
+- [ ] HTTP probing (httpx: title, status, tech, CDN)
+- [ ] Wayback URLs (waybackurls / gau)
+- [ ] JavaScript file discovery + analysis
+- [ ] Technology fingerprinting (httpx -tech-detect, wappalyzer)
+- [ ] WAF detection (wafw00f)
+- [ ] Content discovery (ffuf / feroxbuster)
+- [ ] Subdomain takeover check (nuclei takeovers)
+- [ ] Vulnerability scanning (nuclei CVEs + exposures)
+- [ ] Visual inspection (screenshots or manual browse)
 
-## Target Reconnaissance
-
-- [ ] Passive recon (subfinder, amass, Shodan, Censys)
-- [ ] Active recon (httpx, naabu, gospider, katana)
-- [ ] Technology fingerprinting (wappalyzer, whatweb, nuclei tech-detect)
-- [ ] JS analysis (linkfinder, SecretFinder, jsleak)
-- [ ] Endpoint discovery (ffuf, katana, gospider)
-- [ ] Parameter discovery (Param Miner, ffuf)
-- [ ] Third-party integrations (SSO, analytics, CDN)
-
-## Vulnerability Testing Flow
-
-1. **Information Disclosure** -> Check exposed .git, .env, backup files
-2. **IDOR** -> Enumerate IDs, UUIDs, check horizontal + vertical
-3. **XSS** -> Check all input fields, URL params, headers
-4. **SQLi** -> Check all DB-interacting endpoints
-5. **SSRF** -> Check URL/redirect parameters, file imports
-6. **SSTI** -> Template engines, error messages
-7. **XXE** -> XML endpoints, file upload parsers
-8. **Authentication** -> Rate limiting, JWT attacks, OAuth misconfig
-9. **Authorization** -> Role/privilege escalation checks
-10. **Business Logic** -> Workflow bypass, race conditions, edge cases
-
-## Report Template
-
-```markdown
-## Summary
-[Brief description]
-
-## Target
-[URL/Endpoint]
-
-## Vulnerability Type
-[OWASP category]
-
-## Severity
-[CVSS 3.1 vector] -> [Score]
-
-## Description
-[Detailed explanation]
-
-## Steps to Reproduce
-1. [Step 1]
-2. [Step 2]
-3. [Step 3]
-
-## Proof of Concept
-[Code/Request/Screenshot]
-
-## Impact
-[What attacker can achieve]
-
-## Remediation Suggestion
-[Specific fix]
-
-## References
-[Links to similar vulnerabilities / writeups]
+## Template: Quick Command Reference
+```bash
+# Passive + active pipeline
+subfinder -d target.com -all -silent |   puredns resolve -r resolvers.txt |   naabu -top-ports 1000 -silent -json |   httpx -silent -title -status-code -tech-detect -o live.txt
 ```
-
-## Post-Submission Checklist
-
-- [ ] Added to personal bug tracker
-- [ ] Screenshots organized in per-program folder
-- [ ] Notes saved for future reference
-- [ ] Retested after fix
-- [ ] Updated personal checklist with new findings

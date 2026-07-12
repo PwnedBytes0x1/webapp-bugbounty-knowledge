@@ -1,41 +1,43 @@
-# Bug Bounty Methodology Cheatsheet
+# Methodology Cheatsheet
 
-## Reconnaissance
+## Core Pipeline
 ```
-1. Subdomain enumeration (Subfinder, Amass, Assetfinder)
-2. Live probing (httpx)
-3. Screenshot gathering (Aquatone)
-4. Technology detection (WhatWeb, Wappalyzer)
-5. Content discovery (Feroxbuster, ffuf)
-6. Parameter discovery (Arjun, waybackurls)
-7. JS file analysis (LinkFinder, JSParser)
-8. Port scanning (masscan, naabu)
+Domain → Passive Subs → DNS Resolve → Port Scan → HTTP Probe → Vuln Scan
 ```
 
-## Vulnerability Testing Flow
-```
-For each discovered endpoint/parameter:
-1. Check access control (IDOR, privilege escalation)
-2. Test input validation (XSS, SQLi, SSTI)
-3. Test business logic (race conditions, state machine)
-4. Test configuration (CORS, security headers, CSP)
-5. Test authentication (JWT, OAuth, session management)
+## Quick Commands
+
+### Phase 1: Passive
+```bash
+subfinder -d $1 -all -silent | tee subs.txt
+cat subs.txt | waybackurls | uro | tee urls.txt
 ```
 
-## Payload Quick Reference
-```
-SQLi: ' OR 1=1 --  |  " OR 1=1 --
-XSS: <script>alert(1)</script>  |  <img src=x onerror=alert(1)>
-SSTI: {{7*7}}  |  ${7*7}  |  <%= 7*7 %>
-SSRF: http://127.0.0.1:8080  |  file:///etc/passwd
-XXE: <!ENTITY xxe SYSTEM "file:///etc/passwd">
-Prototype Pollution: {"__proto__":{"isAdmin":true}}
+### Phase 2: Active
+```bash
+cat subs.txt | puredns resolve -r resolvers.txt | tee resolved.txt
+naabu -l resolved.txt -top-ports 1000 -silent -json | tee ports.json
+cat ports.json | jq -r '.ip + ":" + (.port|tostring)' | httpx -silent -title -status-code -tech-detect -o live.txt
 ```
 
-## Priority Matrix
-| Priority | Action |
-|----------|--------|
-| Critical | RCE, SQLi (data exfil), Auth Bypass |
-| High | XSS (stored), SSRF, IDOR (data) |
-| Medium | XSS (reflected), CSRF, Open Redirect |
-| Low | Info Disclosure, Missing Headers |
+### Phase 3: Content
+```bash
+cat live.txt | ffuf -u FUZZ -w raft-large-directories.txt -ac -o ffuf.json
+cat live.txt | katana -js-crawl -d 3 -silent | tee endpoints.txt
+```
+
+### Phase 4: Vuln Scan
+```bash
+nuclei -l live.txt -t ~/nuclei-templates/ -severity critical,high -o critical.txt
+```
+
+## By Vulnerability Type
+
+| Vuln | Quick Check |
+|------|-------------|
+| XSS | `<script>alert(1)</script>` or `"><img src=x onerror=alert(1)>` |
+| SQLi | `' OR 1=1--` or `" OR 1=1--` |
+| SSTI | `{{7*7}}` or `${7*7}` |
+| SSRF | `http://169.254.169.254/latest/meta-data/` |
+| IDOR | Change numeric ID or UUID in URL/body |
+| CORS | Add `Origin: https://evil.com` header |

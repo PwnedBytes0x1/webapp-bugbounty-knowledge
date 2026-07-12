@@ -1,42 +1,40 @@
 # Bug Bounty Report Template
 
+---
+**Title**: [Short descriptive title: Vulnerability Type in Feature]
+
+**Severity**: [Critical / High / Medium / Low / Informational]
+**CVSS Score**: [e.g. 7.5 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N)]
+**Bounty**: [Optional — disclosed bounty amount]
+---
+
 ## Summary
-[One-line description of the vulnerability]
-
-## Title
-Brief, descriptive title (e.g., "Stored XSS in User Profile Bio")
-
-## Severity
-Critical / High / Medium / Low / Informational
-
-## CVSS Score
-CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H (9.8 Critical)
+[1-2 sentence description of the vulnerability]
 
 ## Steps to Reproduce
-1. Navigate to [URL]
-2. Input [payload] in [field]
-3. Observe [result]
-4. Proof of impact: [evidence]
-
-## Proof of Concept
-```http
-[HTTP request/response demonstrating the issue]
-```
-[Or screenshot/video link]
+1. [Step 1]
+2. [Step 2]
+3. [Step 3]
 
 ## Impact
-- [What an attacker can do with this vulnerability]
-- [Business impact]
+[What an attacker can achieve. Be specific but don't inflate.]
 
-## Remediation
-- [Specific fix recommendation]
-- [Code example if applicable]
+## Technical Details
+[Deep explanation — root cause, attack chain, affected endpoints]
 
-## Affected Assets
-- https://target.com/some/endpoint
-- API: POST /api/vulnerable-endpoint
+## Proof of Concept
+[curl command, request/response block, or screenshot]
+
+```http
+POST /api/endpoint HTTP/1.1
+Host: target.com
+...
+
+(payload)
+```
+
+## Remediation Suggestion
+[Actionable fix recommendation]
 
 ## References
-- [OWASP link]
-- [CVE/Mitre link]
-- [Related writeup]
+- [OWASP / CWE / Relevant research]

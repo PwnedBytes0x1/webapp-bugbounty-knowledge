@@ -1,44 +1,22 @@
-# Bug Bounty Severity Matrix
+# Severity Matrix (CVSS 3.1)
 
-## Critical (CVSS 9.0-10.0)
-- Remote Code Execution
-- SQL Injection (data extraction)
-- Authentication Bypass (full)
-- Server-Side Template Injection -> RCE
-- Deserialization -> RCE
-- Direct access to admin panel
+| Vector | Abbreviation | Values |
+|--------|--------------|--------|
+| Attack Vector | AV | Network[N], Adjacent[A], Local[L], Physical[P] |
+| Attack Complexity | AC | Low[L], High[H] |
+| Privileges Required | PR | None[N], Low[L], High[H] |
+| User Interaction | UI | None[N], Required[R] |
+| Scope | S | Unchanged[U], Changed[C] |
+| Confidentiality | C | None[N], Low[L], High[H] |
+| Integrity | I | None[N], Low[L], High[H] |
+| Availability | A | None[N], Low[L], High[H] |
 
-## High (CVSS 7.0-8.9)
-- XSS (stored with admin impact)
-- SSRF (read cloud metadata)
-- IDOR (read other users' data)
-- File Upload (shell upload)
-- CSRF (on sensitive actions)
-- SQL Injection (blind/time-based)
-- XXE (file read)
-- Subdomain Takeover (cookie theft)
-- Prototype Pollution (RCE)
+### Bug Bounty Severity Examples
 
-## Medium (CVSS 4.0-6.9)
-- XSS (reflected, no auth)
-- CSRF (on non-sensitive actions)
-- Open Redirect (with SSRF chain)
-- IDOR (read non-sensitive data)
-- CORS misconfiguration (no creds)
-- Host header injection (password reset)
-- Rate limiting bypass
-- Missing security headers
-
-## Low (CVSS 0.1-3.9)
-- Information disclosure (non-sensitive)
-- Missing security headers (no POC)
-- CORS misconfiguration (no sensitive data)
-- Clickjacking on non-sensitive pages
-- Self-XSS
-- Stack traces
-
-## Informational
-- Version disclosure
-- Internal IP disclosure
-- Directory listing (no sensitive files)
-- Debug mode enabled
+| Vuln | CVSS | Severity |
+|------|------|----------|
+| RCE on web server | 9.8 (AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:H/A:H) | Critical |
+| Stored XSS | 6.1 (AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N) | Medium/High |
+| SSRF with metadata | 8.8 (AV:N/AC:L/PR:L/UI:N/S:U/C:H/I:H/A:H) | Critical/High |
+| Reflected XSS | 6.1 (AV:N/AC:L/PR:N/UI:R/S:C/C:L/I:L/A:N) | Medium |
+| Missing HSTS | 3.7 (AV:N/AC:H/PR:N/UI:R/S:U/C:L/I:N/A:N) | Low |

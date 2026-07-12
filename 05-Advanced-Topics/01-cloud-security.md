@@ -1,54 +1,31 @@
-# Cloud Security Testing
+# Cloud Security: 2026 Reference
 
-## AWS
+## Attack Surface by Provider
 
-### S3 Bucket Testing
-```bash
-# Bucket enumeration
-aws s3 ls s3://target-backup --no-sign-request
-aws s3 sync s3://target-backup ./ --no-sign-request
-curl http://target-backup.s3.amazonaws.com/
+### AWS
+- **S3 bucket enumeration**: Common names, permission check
+- **IAM privilege escalation**: Permission chains
+- **Lambda function takeover**: Unused env variables, old runtimes
+- **CloudFront misconfig**: Origin access, CNAME takeover
+- **EC2 SSRF**: IMDSv1/v2, user-data, instance metadata
+- **ECS task definitions**: Secret env vars accessible if permissive
+- **Route53 subdomain takeover**: Orphaned DNS records
 
-# IAM enumeration
-aws iam list-users
-aws iam list-roles
-aws iam list-policies
-```
+### GCP
+- **Cloud Storage bucket enum**: Similar to S3 pattern
+- **IAM role misconfig**: Primitive escalation
+- **Cloud Functions**: Old runtimes, env vars
+- **Firebase config**: API key exposure, database perms
+- **Kubernetes Engine**: Public dashboards, RBAC gaps
 
-### EC2 / Lambda
-```bash
-# Instance metadata exploitation (SSRF)
-http://169.254.169.254/latest/meta-data/iam/security-credentials/
+### Azure
+- **Blob Storage**: Anonymous access, misconfigured containers
+- **App Service**: Old runtimes, auto-generated domains
+- **Key Vault**: Misconfigured access policies
+- **Azure Functions**: Env var leaks, permissive triggers.
 
-# Lambda env variables (hardcoded secrets)
-aws lambda get-function-configuration --function-name target-function
-```
+## Cloud Metadata SSRF
+Ref: SSRF section for full metadata endpoint reference.
 
-## GCP
-
-### Storage Buckets
-```bash
-gsutil ls gs://target-bucket
-gsutil cp gs://target-bucket/config.json .
-```
-
-### Cloud Functions
-```bash
-gcloud functions list
-gcloud functions call target-function --data '{"test":true}'
-```
-
-## Azure
-
-### Blob Storage
-```bash
-curl https://target.blob.core.windows.net/?comp=list
-az storage blob list --account-name target --container-name prod
-```
-
-## CVSS Scoring
-| Scenario | CVSS | Criteria |
-|----------|------|---------|
-| S3 public bucket read | 4.0 | Network, Low, No auth, Confidentiality low |
-| Cloud metadata credential leak | 8.8 | Network, Low, No auth, Changed scope |
-| Lambda env secret exposure | 7.5 | Network, Low, No auth |
+## Tools
+- ScoutSuite, Pacu (AWS), GCPBucketBrute, CloudSploit, MicroBurst (Azure)
